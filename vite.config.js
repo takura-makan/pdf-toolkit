@@ -5,6 +5,7 @@ import { viteSingleFile } from 'vite-plugin-singlefile'
 export default defineConfig({
   plugins: [react(), viteSingleFile()],
   build: {
-    outDir: 'clasp'
+    outDir: 'clasp',
+    emptyOutDir: false  // ← これを追加（勝手に中身を消さないでという指示）
   }
 })
