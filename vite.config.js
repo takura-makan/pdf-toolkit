@@ -4,8 +4,9 @@ import { viteSingleFile } from 'vite-plugin-singlefile'
 
 export default defineConfig({
   plugins: [react(), viteSingleFile()],
+  publicDir: false, // ← これで画像の自動コピーを完全に止めます
   build: {
     outDir: 'clasp',
-    emptyOutDir: false  // ← これを追加（勝手に中身を消さないでという指示）
+    emptyOutDir: false
   }
 })
