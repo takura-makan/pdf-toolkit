@@ -2860,6 +2860,31 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
         });
       };
 
+
+      const handleConvertPdf2Pptx = async () => {
+        if (convertFiles.length === 0) return;
+        const originalBase = convertFiles[0].name.replace(/\.[^/.]+$/, "");
+        setSaveDialog({
+          type: 'pptx', defaultName: "presentation_" + originalBase, originalName: originalBase,
+          onConfirm: async (customName) => {
+            setSaveDialog(null); setIsExporting(true);
+            try {
+              const file = convertFiles[0]; const ab = await file.arrayBuffer(); const pdf = await window.pdfjsLib.getDocument({ data: ab }).promise;
+              const pptx = new PptxGenJS();
+              for (let i = 1; i <= pdf.numPages; i++) {
+                const page = await pdf.getPage(i); const viewport = page.getViewport({ scale: 1.0 }); const canvas = document.createElement('canvas');
+                canvas.width = viewport.width; canvas.height = viewport.height; await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+                const dataUrl = canvas.toDataURL('image/jpeg', 0.75);
+                const slide = pptx.addSlide();
+                slide.addImage({ data: dataUrl, x: 0, y: 0, w: '100%', h: '100%' });
+              }
+              const pptxData = await pptx.write({ outputType: 'blob' });
+              downloadFile(pptxData, customName + '.pptx', 'application/vnd.openxmlformats-officedocument.presentationml.presentation'); showToast('変換しました', 'success');
+            } catch (e) { showToast('変換に失敗しました', 'error'); } finally { setIsExporting(false); }
+          }
+        });
+      };
+
       const handleAddPageNum = async () => {
         if (!pageNumFile) return;
         const originalBase = pageNumFile.name.replace(/\.[^/.]+$/, "");
