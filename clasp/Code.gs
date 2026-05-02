@@ -1,5 +1,5 @@
 function doGet() {
-  return HtmlService.createTemplateFromFile('Index')
+  return HtmlService.createTemplateFromFile('index')
     .evaluate()
     .setTitle('PDF Toolkit')
     .setFaviconUrl('https://drive.google.com/uc?export=view&id=1Xknx1VcASRKP9zblYqrwOsZ-gMMXubNg&.png')
