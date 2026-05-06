@@ -277,9 +277,9 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
           <label
             className={cn("flex flex-col items-center justify-center w-full h-40 border-2 border-dashed rounded-xl cursor-pointer transition-all group",
               isDragging ? "drag-active" : "border-slate-300 bg-slate-50 hover:bg-slate-100 hover:border-indigo-400")}
-            onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
-            onDragLeave={(e) => { e.preventDefault(); setIsDragging(false); }}
-            onDrop={(e) => { e.preventDefault(); setIsDragging(false); if (e.dataTransfer.files?.length) handleFiles(e.dataTransfer.files); }}>
+            onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setIsDragging(true); }}
+            onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setIsDragging(false); }}
+            onDrop={(e) => { e.preventDefault(); e.stopPropagation(); setIsDragging(false); if (e.dataTransfer.files?.length) handleFiles(e.dataTransfer.files); }}>
             <div className="flex flex-col items-center justify-center pt-5 pb-6 pointer-events-none text-center px-4">
               <div className={cn("w-12 h-12 rounded-full flex items-center justify-center mb-3 transition-transform mx-auto",
                 isDragging ? "bg-indigo-200 text-indigo-700 scale-110" : "bg-indigo-100 text-indigo-600 group-hover:scale-110")}>
@@ -918,7 +918,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
     function OtherModes(props) {
       const {
         appMode, isExporting, handleMerge, handleSplit, handleOrganize,
-        handleConvertImg2Pdf, handleConvertPdf2Img, handleAddPageNum, handleExtractText, handleNUp,
+        handleConvertImg2Pdf, handleConvertPdf2Img, handleConvertPdf2Pptx, handleAddPageNum, handleExtractText, handleNUp,
         mergeFiles, setMergeFiles, 
         mergeThumbnails, setMergeThumbnails, isGeneratingMergeThumbnails, setIsGeneratingMergeThumbnails,
         splitFile, setSplitFile, splitMode, setSplitMode,
@@ -1000,7 +1000,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
       };
       const handleDragEnter = (e, index) => { e.preventDefault(); e.stopPropagation(); setDragOverOrganizeIndex(index); };
       const handleDragOver = (e) => {
-        e.preventDefault();
+        e.preventDefault(); e.stopPropagation();
         if (!organizeGridRef.current) return;
         const container = organizeGridRef.current;
         const rect = container.getBoundingClientRect();
@@ -1009,7 +1009,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
         else if (e.clientY > rect.bottom - scrollZone) container.scrollTop += scrollSpeed;
       };
       const handleDrop = (e) => {
-        e.preventDefault();
+        e.preventDefault(); e.stopPropagation();
         if (draggedOrganizeIndex !== null && dragOverOrganizeIndex !== null && draggedOrganizeIndex !== dragOverOrganizeIndex) {
           setOrganizePages((prevPages) => {
             const newPages = [...prevPages];
@@ -1069,7 +1069,12 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
                   const key = `${file.name}-${file.size}`;
                   const thumbs = mergeThumbnails[key] || [];
                   return (
-                    <div key={`${file.name}-${index}`} draggable onDragStart={(e) => handleMergeDragStart(e, index)} onDragEnter={(e) => handleMergeDragEnter(e, index)} onDragOver={(e) => e.preventDefault()} onDrop={() => setDraggedMergeIndex(null)} onDragEnd={() => setDraggedMergeIndex(null)}
+                    <div key={`${file.name}-${index}`} draggable 
+                      onDragStart={(e) => { e.stopPropagation(); handleMergeDragStart(e, index); }} 
+                      onDragEnter={(e) => { e.stopPropagation(); handleMergeDragEnter(e, index); }} 
+                      onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }} 
+                      onDrop={(e) => { e.stopPropagation(); setDraggedMergeIndex(null); }} 
+                      onDragEnd={(e) => { e.stopPropagation(); setDraggedMergeIndex(null); }}
                       className={cn("flex flex-col p-3 lg:p-4 bg-white border-2 rounded-xl transition-all cursor-grab active:cursor-grabbing group gap-3", draggedMergeIndex === index ? "opacity-40 border-indigo-500 border-dashed scale-95" : "border-slate-200 hover:border-indigo-300 shadow-sm")}>
                       
                       <div className="flex items-center justify-between">
@@ -1435,6 +1440,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
           <div className="flex flex-col sm:flex-row bg-slate-100 p-1 rounded-xl mb-6 lg:mb-8 gap-1">
             <button onClick={() => setConvertMode('img2pdf')} className={cn("flex-1 py-2.5 text-sm font-bold rounded-lg transition-all", convertMode==='img2pdf' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500')}>画像 → PDF</button>
             <button onClick={() => setConvertMode('pdf2img')} className={cn("flex-1 py-2.5 text-sm font-bold rounded-lg transition-all", convertMode==='pdf2img' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500')}>PDF → 画像</button>
+            <button onClick={() => setConvertMode('pdf2pptx')} className={cn("flex-1 py-2.5 text-sm font-bold rounded-lg transition-all", convertMode==='pdf2pptx' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500')}>PDF → PPTX</button>
           </div>
           {convertMode==='img2pdf' ? (
             <>
@@ -1443,11 +1449,18 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
                 <Icons.RefreshCw className="w-5 h-5" /> {isExporting ? '処理中...' : 'PDFに変換'}
               </button>
             </>
-          ) : (
+          ) : convertMode==='pdf2img' ? (
             <>
               <FileUploader accept="application/pdf" multiple={false} onChange={(e) => setConvertFiles([e.target.files[0]])} files={convertFiles.length>0?[convertFiles[0]]:[]} onRemove={() => setConvertFiles([])} recentFiles={recentFiles} addToRecentFiles={addToRecentFiles} />
               <button onClick={handleConvertPdf2Img} disabled={convertFiles.length===0||isExporting} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3.5 px-4 rounded-xl disabled:opacity-50 flex items-center justify-center gap-2 shadow-sm">
                 <Icons.RefreshCw className="w-5 h-5" /> {isExporting ? '処理中...' : '画像に変換'}
+              </button>
+            </>
+          ) : (
+            <>
+              <FileUploader accept="application/pdf" multiple={false} onChange={(e) => setConvertFiles([e.target.files[0]])} files={convertFiles.length>0?[convertFiles[0]]:[]} onRemove={() => setConvertFiles([])} recentFiles={recentFiles} addToRecentFiles={addToRecentFiles} />
+              <button onClick={handleConvertPdf2Pptx} disabled={convertFiles.length===0||isExporting} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3.5 px-4 rounded-xl disabled:opacity-50 flex items-center justify-center gap-2 shadow-sm">
+                <Icons.RefreshCw className="w-5 h-5" /> {isExporting ? '処理中...' : 'PPTXに変換'}
               </button>
             </>
           )}
@@ -3072,7 +3085,6 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
                   handleAddImageAnnotation={handleAddImageAnnotation} pdfDoc={pdfDoc}
                   showSendMenu={showSendMenu} setShowSendMenu={setShowSendMenu} sendToTool={sendToTool} isExporting={isExporting}
                   handleCopyFullPage={handleCopyFullPage}
-                  currentStamp={currentStamp} setCurrentStamp={setCurrentStamp} currentSteelShape={currentSteelShape} setCurrentSteelShape={setCurrentSteelShape} currentMark={currentMark} setCurrentMark={setCurrentMark}
                 />
                 {pdfDoc ? (
                   <EditMode
@@ -3110,7 +3122,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
               </>
             ) : (
               <OtherModes
-                appMode={appMode} isExporting={isExporting} handleMerge={handleMerge} handleSplit={handleSplit} handleOrganize={handleOrganize} handleConvertImg2Pdf={handleConvertImg2Pdf} handleConvertPdf2Img={handleConvertPdf2Img} handleAddPageNum={handleAddPageNum} handleExtractText={handleExtractText} handleNUp={handleNUp}
+                appMode={appMode} isExporting={isExporting} handleMerge={handleMerge} handleSplit={handleSplit} handleOrganize={handleOrganize} handleConvertImg2Pdf={handleConvertImg2Pdf} handleConvertPdf2Img={handleConvertPdf2Img} handleConvertPdf2Pptx={handleConvertPdf2Pptx} handleAddPageNum={handleAddPageNum} handleExtractText={handleExtractText} handleNUp={handleNUp}
                 mergeFiles={mergeFiles} setMergeFiles={setMergeFiles} splitFile={splitFile} setSplitFile={setSplitFile} splitMode={splitMode} setSplitMode={setSplitMode} splitRange={splitRange} setSplitRange={setSplitRange}
                 mergeThumbnails={mergeThumbnails} setMergeThumbnails={setMergeThumbnails} isGeneratingMergeThumbnails={isGeneratingMergeThumbnails} setIsGeneratingMergeThumbnails={setIsGeneratingMergeThumbnails}
                 splitThumbnails={splitThumbnails} setSplitThumbnails={setSplitThumbnails} isGeneratingSplitThumbnails={isGeneratingSplitThumbnails} setIsGeneratingSplitThumbnails={setIsGeneratingSplitThumbnails}
