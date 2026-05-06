@@ -47,7 +47,8 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
       Check: (p) => <IconBase {...p}><polyline points="20 6 9 17 4 12"/></IconBase>,
       X: (p) => <IconBase {...p}><path d="M18 6 6 18"/><path d="m6 6 12 12"/></IconBase>,
       Eraser: (p) => <IconBase {...p}><path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"/><path d="M22 21H7"/><path d="m5 11 9 9"/></IconBase>,
-      
+      FolderOpen: (p) => <IconBase {...p}><path d="m6 14 1.45-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.55 6a2 2 0 0 1-1.94 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.69.9H18a2 2 0 0 1 2 2v2"/></IconBase>,
+      Presentation: (p) => <IconBase {...p}><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M12 17v4"/><path d="M8 21h8"/></IconBase>,
       CChannel: (p)=><IconBase {...p}><path d="M7 3h10v3H10v12h7v3H7z"/></IconBase>,
       LightChannel: (p)=><IconBase {...p}><path d="M7 3h10v2H9v14h8v2H7z"/></IconBase>,
       LipChannel: (p)=><IconBase {...p}><path d="M7 3h10v6h-3V6H10v12h4v-3h3v6H7z"/></IconBase>,
@@ -2980,8 +2981,8 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
           <div className="fixed inset-0 z-[200] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
               <div className="bg-slate-900 px-6 py-4 flex items-center gap-3 text-white">
-                {dialog.type === 'pdf' ? <Icons.Download className="w-5 h-5 text-indigo-400" /> : dialog.type === 'zip' ? <Icons.Layers className="w-5 h-5 text-amber-400" /> : <Icons.Image className="w-5 h-5 text-emerald-400" />}
-                <h2 className="text-lg font-bold">{dialog.type === 'pdf' ? 'PDFで保存' : dialog.type === 'zip' ? 'ZIPで保存' : '画像で保存'}</h2>
+                {dialog.type === 'pdf' ? <Icons.Download className="w-5 h-5 text-indigo-400" /> : dialog.type === 'zip' ? <Icons.Layers className="w-5 h-5 text-amber-400" /> : dialog.type === 'pptx' ? <Icons.Presentation className="w-5 h-5 text-orange-400" /> : <Icons.Image className="w-5 h-5 text-emerald-400" />}
+                <h2 className="text-lg font-bold">{dialog.type === 'pdf' ? 'PDFで保存' : dialog.type === 'zip' ? 'ZIPで保存' : dialog.type === 'pptx' ? 'PPTXで保存' : '画像で保存'}</h2>
               </div>
               
               <div className="p-6 pb-2">
@@ -3007,7 +3008,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
                   <input type="text" value={currentName} onChange={(e) => setCustomName(e.target.value)} disabled={useOriginalName}
                     onKeyDown={(e) => { if (e.key === 'Enter') dialog.onConfirm(currentName, textExportMode); if (e.key === 'Escape') onClose(); }}
                     className="flex-1 px-4 py-3 text-sm outline-none font-medium bg-transparent disabled:text-slate-500" autoFocus placeholder="ファイル名を入力..." />
-                  <span className="pr-4 text-sm text-slate-400 font-medium shrink-0">{dialog.type === 'pdf' ? '.pdf' : dialog.type === 'zip' ? '.zip' : '.png'}</span>
+                  <span className="pr-4 text-sm text-slate-400 font-medium shrink-0">{dialog.type === 'pdf' ? '.pdf' : dialog.type === 'zip' ? '.zip' : dialog.type === 'pptx' ? '.pptx' : '.png'}</span>
                 </div>
                 <label className="flex items-center gap-2 mt-4 cursor-pointer w-max mb-4">
                   <input type="checkbox" checked={useOriginalName} onChange={(e) => setUseOriginalName(e.target.checked)} className="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500 cursor-pointer" />
