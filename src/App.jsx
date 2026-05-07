@@ -2867,7 +2867,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
                 downloadFile(await zip.generateAsync({ type: 'blob' }), customName + '.zip', 'application/zip');
               } else {
                 const newPdf = await window.PDFLib.PDFDocument.create(); 
-                (await newPdf.copyPages(pdf, targetIndices)).forEach(p => newPdf.addPage(p));
+                for (const idx of targetIndices) { await copyToDoc(newPdf, pdf, idx, bytes); }
                 downloadFile(await newPdf.save({ useObjectStreams: true }), customName + '.pdf');
               }
               showToast('抽出しました', 'success');
