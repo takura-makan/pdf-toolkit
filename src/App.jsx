@@ -2958,7 +2958,11 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
       const handleOrganizeRotate = (i, angle) => { const p=[...organizePages]; p[i].rotation=(p[i].rotation+angle)%360; setOrganizePages(p); };
 
       const [isGlobalDragging, setIsGlobalDragging] = useState(false);
-      const handleGlobalDragOver = useCallback((e) => { e.preventDefault(); setIsGlobalDragging(true); }, []);
+      const handleGlobalDragOver = useCallback((e) => {
+        e.preventDefault();
+        if (appMode === 'edit') setIsGlobalDragging(true);
+      }, [appMode]);
+      useEffect(() => { setIsGlobalDragging(false); }, [appMode]);
       const handleGlobalDragLeave = useCallback((e) => { e.preventDefault(); if(e.clientX===0||e.clientY===0) setIsGlobalDragging(false); }, []);
       const handleGlobalDrop = useCallback((e) => {
         e.preventDefault(); setIsGlobalDragging(false);
