@@ -1564,6 +1564,26 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
     }
 
     function App() {
+      const copyToDoc = async (targetDoc, srcDoc, srcPageIndex, originalBytes) => {
+        try {
+          const [page] = await targetDoc.copyPages(srcDoc, [srcPageIndex]);
+          targetDoc.addPage(page);
+          return page;
+        } catch (e) {
+          console.warn("Copying page failed, using image fallback:", e);
+          const pdfjsDoc = await window.pdfjsLib.getDocument({ data: originalBytes, cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/', cMapPacked: true }).promise;
+          const page = await pdfjsDoc.getPage(srcPageIndex + 1);
+          const viewport = page.getViewport({ scale: 3.0 });
+          const canvas = document.createElement('canvas');
+          canvas.width = viewport.width; canvas.height = viewport.height;
+          await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+          const img = await targetDoc.embedJpg(canvas.toDataURL('image/jpeg', 0.95));
+          const newPage = targetDoc.addPage([viewport.width / 3.0, viewport.height / 3.0]);
+          newPage.drawImage(img, { x: 0, y: 0, width: newPage.getWidth(), height: newPage.getHeight() });
+          return newPage;
+        }
+      };
+
     　const [currentMark, setCurrentMark] = useLocalStorageState('pdf_currentMark', 'check');
       const [appMode, setAppMode] = useLocalStorageState('pdf_appMode', 'edit');
       const [tool, setTool] = useLocalStorageState('pdf_tool', 'select');
@@ -2788,7 +2808,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
               for (const file of mergeFiles) {
                 const bytes = await file.arrayBuffer(); const pdf = await PDFDocument.load(bytes, { ignoreEncryption: true }); const count = pdf.getPageCount();
                 bookmarkData.push({ title: file.name.replace(/\.[^/.]+$/, ""), startIndex: currentPageOffset });
-                const copiedPages = await mergedPdf.copyPages(pdf, pdf.getPageIndices()); copiedPages.forEach(page => mergedPdf.addPage(page)); currentPageOffset += count;
+                for (const idx of pdf.getPageIndices()) { await copyToDoc(mergedPdf, pdf, idx, bytes); } currentPageOffset += count;
               }
               if (addMergeBookmarks && bookmarkData.length > 0) {
                 const context = mergedPdf.context; const pages = mergedPdf.getPages(); const outlinesDictRef = context.nextRef();
@@ -2839,8 +2859,9 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
                 const zip = new window.JSZip();
                 for (const i of targetIndices) {
                   const newPdf = await window.PDFLib.PDFDocument.create(); 
-                  const [copiedPage] = await newPdf.copyPages(pdf, [i]);
-                  newPdf.addPage(copiedPage); 
+                  
+          await copyToDoc(newPdf, pdf, i, bytes);
+                   
                   zip.file(`${customName}_${i+1}.pdf`, await newPdf.save({ useObjectStreams: true }));
                 }
                 downloadFile(await zip.generateAsync({ type: 'blob' }), customName + '.zip', 'application/zip');
@@ -2865,7 +2886,9 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
             try {
               const bytes = await organizeFile.arrayBuffer(); const pdf = await window.PDFLib.PDFDocument.load(bytes, { ignoreEncryption: true }); const newPdf = await window.PDFLib.PDFDocument.create();
               for (const pageInfo of organizePages) {
-                const [copiedPage] = await newPdf.copyPages(pdf, [pageInfo.originalIndex]); copiedPage.setRotation(window.PDFLib.degrees(pageInfo.rotation)); newPdf.addPage(copiedPage);
+                
+          const copiedPage = await copyToDoc(newPdf, pdf, pageInfo.originalIndex, bytes);
+          copiedPage.setRotation(window.PDFLib.degrees(pageInfo.rotation));
               }
               downloadFile(await newPdf.save({ useObjectStreams: true }), customName + '.pdf'); showToast('整理して保存しました', 'success');
             } catch (e) { showToast('整理に失敗しました', 'error'); } finally { setIsExporting(false); }
