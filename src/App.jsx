@@ -1325,8 +1325,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
                   const file = e.target.files[0]; if (!file) return; setOrganizeFile(file); setIsGeneratingThumbnails(true);
                   try {
                     const arrayBuffer = await file.arrayBuffer();
-                    const pdfDocLib = await window.PDFLib.PDFDocument.load(arrayBuffer.slice(0), { ignoreEncryption: true });
-                    const libPages = pdfDocLib.getPages();
+                    
                     const loadingTask = window.pdfjsLib.getDocument({ data: arrayBuffer.slice(0), cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/', cMapPacked: true });
                     const pdfDoc = await loadingTask.promise;
                     const pages = [];
@@ -1337,7 +1336,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
                       const context = canvas.getContext('2d');
                       canvas.width = viewport.width; canvas.height = viewport.height;
                       await page.render({ canvasContext: context, viewport: viewport }).promise;
-                      pages.push({ id: `page-${i}-${Date.now()}`, originalIndex: i - 1, rotation: libPages[i - 1].getRotation().angle, thumbnail: canvas.toDataURL('image/jpeg', 0.8) });
+                      pages.push({ id: `page-${i}-${Date.now()}`, originalIndex: i - 1, rotation: page.rotate || 0, thumbnail: canvas.toDataURL('image/jpeg', 0.8) });
                     }
                     setOrganizePages(pages);
                   } catch (error) { console.error("サムネイル生成エラー:", error); } finally { setIsGeneratingThumbnails(false); }
@@ -1566,6 +1565,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
     function App() {
       const copyToDoc = async (targetDoc, srcDoc, srcPageIndex, originalBytes) => {
         try {
+          if (!srcDoc) throw new Error("No srcDoc provided");
           const [page] = await targetDoc.copyPages(srcDoc, [srcPageIndex]);
           targetDoc.addPage(page);
           return page;
@@ -2782,8 +2782,12 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
           const file = new File([mergedBytes], fileName, { type: 'application/pdf' }); addToRecentFiles([file]);
           if (targetMode==='merge') setMergeFiles([file]); else if (targetMode==='split') setSplitFile(file);
           else if (targetMode==='organize') {
-            setOrganizeFile(file); const lib = await window.PDFLib.PDFDocument.load(mergedBytes, { ignoreEncryption: true });
-            const pages = lib.getPages().map((p, i) => ({ id: `page-${i}`, originalIndex: i, rotation: p.getRotation().angle }));
+            setOrganizeFile(file); const pdfjsDoc = await window.pdfjsLib.getDocument({ data: mergedBytes, cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/', cMapPacked: true }).promise;
+            const pages = [];
+            for (let i = 0; i < pdfjsDoc.numPages; i++) {
+              const p = await pdfjsDoc.getPage(i + 1);
+              pages.push({ id: `page-${i}`, originalIndex: i, rotation: p.rotate || 0 });
+            }
             setOrganizePages(pages); generateOrganizeThumbnails(file);
           }
           else if (targetMode==='convert') setConvertFiles([file]); 
@@ -2806,9 +2810,23 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
               const { PDFDocument, PDFName, PDFNumber, PDFHexString } = window.PDFLib; const mergedPdf = await PDFDocument.create();
               const bookmarkData = []; let currentPageOffset = 0;
               for (const file of mergeFiles) {
-                const bytes = await file.arrayBuffer(); const pdf = await PDFDocument.load(bytes, { ignoreEncryption: true }); const count = pdf.getPageCount();
+                const bytes = await file.arrayBuffer(); let pdf, count;
+                try {
+                  pdf = await PDFDocument.load(bytes, { ignoreEncryption: true });
+                  count = pdf.getPageCount();
+                  
                 bookmarkData.push({ title: file.name.replace(/\.[^/.]+$/, ""), startIndex: currentPageOffset });
-                for (const idx of pdf.getPageIndices()) { await copyToDoc(mergedPdf, pdf, idx, bytes); } currentPageOffset += count;
+                
+                  for (const idx of pdf.getPageIndices()) { await copyToDoc(mergedPdf, pdf, idx, bytes); }
+                } catch (e) {
+                  console.warn("Merge loading failed, falling back to pdf.js for count:", e);
+                  const pdfjsDoc = await window.pdfjsLib.getDocument({ data: bytes, cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/', cMapPacked: true }).promise;
+                  count = pdfjsDoc.numPages;
+                  
+                bookmarkData.push({ title: file.name.replace(/\.[^/.]+$/, ""), startIndex: currentPageOffset });
+                
+                  for (let idx = 0; idx < count; idx++) { await copyToDoc(mergedPdf, null, idx, bytes); }
+                } currentPageOffset += count;
               }
               if (addMergeBookmarks && bookmarkData.length > 0) {
                 const context = mergedPdf.context; const pages = mergedPdf.getPages(); const outlinesDictRef = context.nextRef();
