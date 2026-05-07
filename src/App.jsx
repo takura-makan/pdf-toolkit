@@ -1700,6 +1700,14 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
               if (j >= srcPages.length) break;
               const p = srcPages[j];
               
+      
+      const { width: pW, height: pH } = p.getSize();
+      const scale = Math.min(cellW / pW, cellH / pH);
+      let col = j % cols;
+      let row = Math.floor(j / cols);
+      if (nUpDirection === 'rtl' && cols > 1) col = cols - 1 - col;
+      const x = col * cellW + (cellW - pW * scale) / 2;
+      const y = outH - (row + 1) * cellH + (cellH - pH * scale) / 2;
       let drawAction;
       try {
         const embedded = await previewPdf.embedPage(p);
@@ -2714,6 +2722,14 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
                   if (i + j >= srcPages.length) break;
                   const p = srcPages[i + j];
                   
+      
+      const { width: pW, height: pH } = p.getSize();
+      const scale = Math.min(cellW / pW, cellH / pH);
+      let col = j % cols;
+      let row = Math.floor(j / cols);
+      if (nUpDirection === 'rtl' && cols > 1) col = cols - 1 - col;
+      const x = col * cellW + (cellW - pW * scale) / 2;
+      const y = outH - (row + 1) * cellH + (cellH - pH * scale) / 2;
       let drawAction;
       try {
         const embedded = await newPdf.embedPage(p);
