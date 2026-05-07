@@ -1675,6 +1675,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
             const srcPdf = await window.PDFLib.PDFDocument.load(bytes, { ignoreEncryption: true });
             const previewPdf = await window.PDFLib.PDFDocument.create();
             const srcPages = srcPdf.getPages();
+      const pdfjsDoc = await window.pdfjsLib.getDocument({ data: bytes, cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/', cMapPacked: true }).promise;
             const refPage = srcPages[0];
             const { width: sW, height: sH } = refPage.getSize();
 
@@ -1698,15 +1699,22 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
             for (let j = 0; j < cols * rows; j++) {
               if (j >= srcPages.length) break;
               const p = srcPages[j];
-              const embedded = await previewPdf.embedPage(p);
-              const { width: pW, height: pH } = p.getSize();
-              const scale = Math.min(cellW / pW, cellH / pH);
-              let col = j % cols;
-              let row = Math.floor(j / cols);
-              if (nUpDirection === 'rtl' && cols > 1) col = cols - 1 - col;
-              const x = col * cellW + (cellW - pW * scale) / 2;
-              const y = outH - (row + 1) * cellH + (cellH - pH * scale) / 2;
-              outPage.drawPage(embedded, { x, y, xScale: scale, yScale: scale });
+              
+      let drawAction;
+      try {
+        const embedded = await previewPdf.embedPage(p);
+        drawAction = (targetPage, dims) => targetPage.drawPage(embedded, dims);
+      } catch (e) {
+        console.warn("N-up preview embedding failed, using image fallback", e);
+        const page = await pdfjsDoc.getPage(j + 1);
+        const viewport = page.getViewport({ scale: 2.0 });
+        const canvas = document.createElement('canvas');
+        canvas.width = viewport.width; canvas.height = viewport.height;
+        await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+        const img = await previewPdf.embedJpg(canvas.toDataURL('image/jpeg', 0.8));
+        drawAction = (targetPage, dims) => targetPage.drawImage(img, { x: dims.x, y: dims.y, width: pW * dims.xScale, height: pH * dims.yScale });
+      }
+      drawAction(outPage, { x, y, xScale: scale, yScale: scale });
             }
 
             const pdfBytes = await previewPdf.save({ useObjectStreams: true });
@@ -2680,6 +2688,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
               const srcPdf = await window.PDFLib.PDFDocument.load(bytes, { ignoreEncryption: true }); 
               const newPdf = await window.PDFLib.PDFDocument.create();
               const srcPages = srcPdf.getPages();
+      const pdfjsDoc = await window.pdfjsLib.getDocument({ data: bytes, cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/', cMapPacked: true }).promise;
               
               const { width: sW, height: sH } = srcPages[0].getSize();
               const is2Up = nUpType === '2up';
@@ -2704,15 +2713,22 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
                 for (let j = 0; j < pagesPerSheet; j++) {
                   if (i + j >= srcPages.length) break;
                   const p = srcPages[i + j];
-                  const embedded = await newPdf.embedPage(p);
-                  const { width: pW, height: pH } = p.getSize();
-                  const scale = Math.min(cellW / pW, cellH / pH);
-                  let col = j % cols;
-                  let row = Math.floor(j / cols);
-                  if (nUpDirection === 'rtl' && cols > 1) col = cols - 1 - col;
-                  const x = col * cellW + (cellW - pW * scale) / 2;
-                  const y = outH - (row + 1) * cellH + (cellH - pH * scale) / 2;
-                  outPage.drawPage(embedded, { x, y, xScale: scale, yScale: scale });
+                  
+      let drawAction;
+      try {
+        const embedded = await newPdf.embedPage(p);
+        drawAction = (targetPage, dims) => targetPage.drawPage(embedded, dims);
+      } catch (e) {
+        console.warn("N-up export embedding failed, using image fallback", e);
+        const page = await pdfjsDoc.getPage(i + j + 1);
+        const viewport = page.getViewport({ scale: 2.5 });
+        const canvas = document.createElement('canvas');
+        canvas.width = viewport.width; canvas.height = viewport.height;
+        await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+        const img = await newPdf.embedJpg(canvas.toDataURL('image/jpeg', 0.9));
+        drawAction = (targetPage, dims) => targetPage.drawImage(img, { x: dims.x, y: dims.y, width: pW * dims.xScale, height: pH * dims.yScale });
+      }
+      drawAction(outPage, { x, y, xScale: scale, yScale: scale });
                 }
               }
               downloadFile(await newPdf.save({ useObjectStreams: true }), customName + '.pdf'); 
