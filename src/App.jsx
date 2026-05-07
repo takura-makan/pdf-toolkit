@@ -1709,7 +1709,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
               outPage.drawPage(embedded, { x, y, xScale: scale, yScale: scale });
             }
 
-            const pdfBytes = await previewPdf.save();
+            const pdfBytes = await previewPdf.save({ useObjectStreams: true });
             const loadingTask = window.pdfjsLib.getDocument({ data: pdfBytes });
             const pdf = await loadingTask.promise;
             const page = await pdf.getPage(1);
@@ -1903,7 +1903,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
           else { showToast('PNGまたはJPEG画像のみ対応しています', 'error'); return; }
           const page = pdfDocLib.addPage([image.width, image.height]);
           page.drawImage(image, { x: 0, y: 0, width: image.width, height: image.height });
-          const bytes = await pdfDocLib.save();
+          const bytes = await pdfDocLib.save({ useObjectStreams: true });
           await loadPdf(bytes, name);
         } catch (error) { console.error(error); showToast('画像の読み込みに失敗しました', 'error'); }
       };
@@ -1953,8 +1953,8 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
               const lines = ann.text.split('\n');
               const maxLen = Math.max(...lines.map(l => l.length), 1);
               const fs = ann.fontSize || 18;
-              aw = maxLen * fs * 0.8; // Estimate width
-              ah = lines.length * fs * 1.2; // Estimate height
+              aw = maxLen * fs * 1.2; // Estimate width
+              ah = lines.length * fs * 1.4; // Estimate height
               ay -= fs * 0.2; // Adjust for rendering offset
             }
             if (['polygon', 'solidPolygon'].includes(ann.type) && ann.points) {
@@ -2340,7 +2340,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
             const pdfDocLib = await window.PDFLib.PDFDocument.load(new Uint8Array(pdfBytes));
             pdfDocLib.registerFontkit(window.fontkit);
             await applyAnnotationsToDoc(pdfDocLib, currentPage);
-            const savedPdfBytes = await pdfDocLib.save();
+            const savedPdfBytes = await pdfDocLib.save({ useObjectStreams: true });
 
             const pdfForRender = await window.pdfjsLib.getDocument({ data: savedPdfBytes }).promise;
             const renderPage = await pdfForRender.getPage(currentPage);
@@ -2444,7 +2444,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
             const page = await pdf.getPage(i + 1); const viewport = page.getViewport({ scale: 1.5 });
             const canvas = document.createElement('canvas'); const context = canvas.getContext('2d');
             canvas.width = viewport.width; canvas.height = viewport.height;
-            await page.render({ canvasContext: context, viewport }).promise; thumbs[i] = canvas.toDataURL('image/jpeg', 0.9);
+            await page.render({ canvasContext: context, viewport }).promise; thumbs[i] = canvas.toDataURL('image/jpeg', 0.95);
           }
           setOrganizeThumbnails(thumbs);
         } catch (e) { console.error('Thumbnail generation error:', e); }
@@ -2635,7 +2635,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
               
               await applyAnnotationsToDoc(pdfDocLib, null, textExportMode); 
               
-              downloadFile(await pdfDocLib.save(), customName + ".pdf"); 
+              downloadFile(await pdfDocLib.save({ useObjectStreams: true }), customName + ".pdf"); 
               showToast('保存しました', 'success');
             } catch (error) { 
               console.error(error); 
@@ -2656,9 +2656,9 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
             setSaveDialog(null); setIsExporting(true);
             try {
               const pdfDocLib = await window.PDFLib.PDFDocument.load(new Uint8Array(pdfBytes)); pdfDocLib.registerFontkit(window.fontkit);
-              await applyAnnotationsToDoc(pdfDocLib, currentPage); const savedPdfBytes = await pdfDocLib.save();
+              await applyAnnotationsToDoc(pdfDocLib, currentPage); const savedPdfBytes = await pdfDocLib.save({ useObjectStreams: true });
               const pdfForRender = await window.pdfjsLib.getDocument({ data: savedPdfBytes }).promise; const renderPage = await pdfForRender.getPage(currentPage);
-              const viewport = renderPage.getViewport({ scale: 2.0 }); const canvas = document.createElement('canvas');
+              const viewport = renderPage.getViewport({ scale: 3.0 }); const canvas = document.createElement('canvas');
               canvas.width = viewport.width; canvas.height = viewport.height; const context = canvas.getContext('2d');
               await renderPage.render({ canvasContext: context, viewport }).promise; const imgDataUrl = canvas.toDataURL('image/png');
               const link = document.createElement("a"); link.href = imgDataUrl; link.download = customName + ".png";
@@ -2715,7 +2715,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
                   outPage.drawPage(embedded, { x, y, xScale: scale, yScale: scale });
                 }
               }
-              downloadFile(await newPdf.save(), customName + '.pdf'); 
+              downloadFile(await newPdf.save({ useObjectStreams: true }), customName + '.pdf'); 
               showToast('割り付けを保存しました', 'success');
             } catch (e) { console.error(e); showToast('割り付けに失敗しました', 'error'); } finally { setIsExporting(false); }
           }
@@ -2726,7 +2726,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
         if (!pdfBytes) return; setIsExporting(true);
         try {
           const pdfDocLib = await window.PDFLib.PDFDocument.load(new Uint8Array(pdfBytes)); pdfDocLib.registerFontkit(window.fontkit);
-          await applyAnnotationsToDoc(pdfDocLib, null); const mergedBytes = await pdfDocLib.save();
+          await applyAnnotationsToDoc(pdfDocLib, null); const mergedBytes = await pdfDocLib.save({ useObjectStreams: true });
           const file = new File([mergedBytes], fileName, { type: 'application/pdf' }); addToRecentFiles([file]);
           if (targetMode==='merge') setMergeFiles([file]); else if (targetMode==='split') setSplitFile(file);
           else if (targetMode==='organize') {
@@ -2769,7 +2769,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
                 const outlinesDict = context.obj({ Type: PDFName.of('Outlines'), First: outlineItemRefs[0], Last: outlineItemRefs[outlineItemRefs.length-1], Count: PDFNumber.of(bookmarkData.length), });
                 context.assign(outlinesDictRef, outlinesDict); mergedPdf.catalog.set(PDFName.of('Outlines'), outlinesDictRef);
               }
-              downloadFile(await mergedPdf.save(), customName + ".pdf"); showToast('結合しました', 'success');
+              downloadFile(await mergedPdf.save({ useObjectStreams: true }), customName + ".pdf"); showToast('結合しました', 'success');
             } catch (e) { console.error(e); showToast('結合に失敗しました', 'error'); } finally { setIsExporting(false); }
           }
         });
@@ -2809,13 +2809,13 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
                   const newPdf = await window.PDFLib.PDFDocument.create(); 
                   const [copiedPage] = await newPdf.copyPages(pdf, [i]);
                   newPdf.addPage(copiedPage); 
-                  zip.file(`${customName}_${i+1}.pdf`, await newPdf.save());
+                  zip.file(`${customName}_${i+1}.pdf`, await newPdf.save({ useObjectStreams: true }));
                 }
                 downloadFile(await zip.generateAsync({ type: 'blob' }), customName + '.zip', 'application/zip');
               } else {
                 const newPdf = await window.PDFLib.PDFDocument.create(); 
                 (await newPdf.copyPages(pdf, targetIndices)).forEach(p => newPdf.addPage(p));
-                downloadFile(await newPdf.save(), customName + '.pdf');
+                downloadFile(await newPdf.save({ useObjectStreams: true }), customName + '.pdf');
               }
               showToast('抽出しました', 'success');
             } catch (e) { showToast('抽出に失敗しました', 'error'); } finally { setIsExporting(false); }
@@ -2835,7 +2835,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
               for (const pageInfo of organizePages) {
                 const [copiedPage] = await newPdf.copyPages(pdf, [pageInfo.originalIndex]); copiedPage.setRotation(window.PDFLib.degrees(pageInfo.rotation)); newPdf.addPage(copiedPage);
               }
-              downloadFile(await newPdf.save(), customName + '.pdf'); showToast('整理して保存しました', 'success');
+              downloadFile(await newPdf.save({ useObjectStreams: true }), customName + '.pdf'); showToast('整理して保存しました', 'success');
             } catch (e) { showToast('整理に失敗しました', 'error'); } finally { setIsExporting(false); }
           }
         });
@@ -2855,7 +2855,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
                 if (file.type === 'image/png') image = await doc.embedPng(bytes); else if (file.type === 'image/jpeg') image = await doc.embedJpg(bytes); else continue;
                 const page = doc.addPage([image.width, image.height]); page.drawImage(image, { x: 0, y: 0, width: image.width, height: image.height });
               }
-              downloadFile(await doc.save(), customName + '.pdf'); showToast('変換しました', 'success');
+              downloadFile(await doc.save({ useObjectStreams: true }), customName + '.pdf'); showToast('変換しました', 'success');
             } catch (e) { showToast('変換に失敗しました', 'error'); } finally { setIsExporting(false); }
           }
         });
@@ -2871,7 +2871,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
             try {
               const file = convertFiles[0]; const ab = await file.arrayBuffer(); const pdf = await window.pdfjsLib.getDocument({ data: ab }).promise; const zip = new window.JSZip();
               for (let i = 1; i <= pdf.numPages; i++) {
-                const page = await pdf.getPage(i); const viewport = page.getViewport({ scale: 2.0 }); const canvas = document.createElement('canvas');
+                const page = await pdf.getPage(i); const viewport = page.getViewport({ scale: 3.0 }); const canvas = document.createElement('canvas');
                 canvas.width = viewport.width; canvas.height = viewport.height; await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
                 zip.file(`page_${i}.png`, canvas.toDataURL('image/png').replace(/^data:image\/png;base64,/, ""), { base64: true });
               }
@@ -2893,9 +2893,9 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
               const file = convertFiles[0]; const ab = await file.arrayBuffer(); const pdf = await window.pdfjsLib.getDocument({ data: ab }).promise;
               const pptx = new PptxGenJS();
               for (let i = 1; i <= pdf.numPages; i++) {
-                const page = await pdf.getPage(i); const viewport = page.getViewport({ scale: 2.0 }); const canvas = document.createElement('canvas');
+                const page = await pdf.getPage(i); const viewport = page.getViewport({ scale: 3.0 }); const canvas = document.createElement('canvas');
                 canvas.width = viewport.width; canvas.height = viewport.height; await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
-                const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+                const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
                 const slide = pptx.addSlide();
                 slide.addImage({ data: dataUrl, x: 0, y: 0, w: '100%', h: '100%' });
               }
@@ -2922,7 +2922,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
                 if (pageNumPosition.includes('top')) y = height - margin - fontSize; else y = margin;
                 page.drawText(text, { x, y, size: fontSize, color: window.PDFLib.rgb(0, 0, 0) });
               });
-              downloadFile(await pdf.save(), customName + '.pdf'); showToast('ページ番号を追加しました', 'success');
+              downloadFile(await pdf.save({ useObjectStreams: true }), customName + '.pdf'); showToast('ページ番号を追加しました', 'success');
             } catch (e) { showToast('追加に失敗しました', 'error'); } finally { setIsExporting(false); }
           }
         });
@@ -2941,7 +2941,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
             const worker = await window.Tesseract.createWorker('jpn');
             for (let i = 1; i <= pdf.numPages; i++) {
               setExtractProgress(`OCR処理中... (${i} / ${pdf.numPages} ページ目)`);
-              const page = await pdf.getPage(i); const viewport = page.getViewport({ scale: 2.0 }); const canvas = document.createElement('canvas');
+              const page = await pdf.getPage(i); const viewport = page.getViewport({ scale: 3.0 }); const canvas = document.createElement('canvas');
               canvas.width = viewport.width; canvas.height = viewport.height; await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
               const { data: { text } } = await worker.recognize(canvas); fullText += `--- Page ${i} (OCR) ---\n${text}\n\n`;
             }
