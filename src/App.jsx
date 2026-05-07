@@ -1689,22 +1689,21 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
               cols = 2; rows = 2;
             }
 
-            const outW = sW * cols;
-            const outH = sH * rows;
+            const outW = sW;
+            const outH = sH;
             const outPage = previewPdf.addPage([outW, outH]);
             const cellW = outW / cols;
             const cellH = outH / rows;
 
             for (let j = 0; j < cols * rows; j++) {
               if (j >= srcPages.length) break;
-              const embedded = await previewPdf.embedPage(srcPages[j]);
-              const { width: pW, height: pH } = srcPages[j].getSize();
+              const p = srcPages[j];
+              const embedded = await previewPdf.embedPage(p);
+              const { width: pW, height: pH } = p.getSize();
               const scale = Math.min(cellW / pW, cellH / pH);
               let col = j % cols;
               let row = Math.floor(j / cols);
-              
               if (nUpDirection === 'rtl' && cols > 1) col = cols - 1 - col;
-
               const x = col * cellW + (cellW - pW * scale) / 2;
               const y = outH - (row + 1) * cellH + (cellH - pH * scale) / 2;
               outPage.drawPage(embedded, { x, y, xScale: scale, yScale: scale });
@@ -1714,7 +1713,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
             const loadingTask = window.pdfjsLib.getDocument({ data: pdfBytes });
             const pdf = await loadingTask.promise;
             const page = await pdf.getPage(1);
-            const viewport = page.getViewport({ scale: 0.5 });
+            const viewport = page.getViewport({ scale: 1.0 });
             const canvas = document.createElement('canvas');
             canvas.width = viewport.width; canvas.height = viewport.height;
             await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
