@@ -1950,6 +1950,14 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
           }
           if (['rect','solidRect','circle','solidCircle','highlight','image','text','polygon','solidPolygon'].includes(ann.type)) {
             let ax = ann.x, ay = ann.y, aw = ann.width, ah = ann.height;
+            if (ann.type === 'text') {
+              const lines = ann.text.split('\n');
+              const maxLen = Math.max(...lines.map(l => l.length), 1);
+              const fs = ann.fontSize || 18;
+              aw = maxLen * fs * 0.8; // Estimate width
+              ah = lines.length * fs * 1.2; // Estimate height
+              ay -= fs * 0.2; // Adjust for rendering offset
+            }
             if (['polygon', 'solidPolygon'].includes(ann.type) && ann.points) {
               const xs = ann.points.map(p => p.x); const ys = ann.points.map(p => p.y);
               ax = Math.min(...xs); ay = Math.min(...ys); aw = Math.max(...xs) - ax; ah = Math.max(...ys) - ay;
@@ -2687,8 +2695,8 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
               }
 
               const pagesPerSheet = cols * rows;
-              const outW = sW * cols;
-              const outH = sH * rows;
+              const outW = sW;
+              const outH = sH;
 
               for (let i = 0; i < srcPages.length; i += pagesPerSheet) {
                 const outPage = newPdf.addPage([outW, outH]);
@@ -2886,9 +2894,9 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
               const file = convertFiles[0]; const ab = await file.arrayBuffer(); const pdf = await window.pdfjsLib.getDocument({ data: ab }).promise;
               const pptx = new PptxGenJS();
               for (let i = 1; i <= pdf.numPages; i++) {
-                const page = await pdf.getPage(i); const viewport = page.getViewport({ scale: 1.0 }); const canvas = document.createElement('canvas');
+                const page = await pdf.getPage(i); const viewport = page.getViewport({ scale: 2.0 }); const canvas = document.createElement('canvas');
                 canvas.width = viewport.width; canvas.height = viewport.height; await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
-                const dataUrl = canvas.toDataURL('image/jpeg', 0.75);
+                const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
                 const slide = pptx.addSlide();
                 slide.addImage({ data: dataUrl, x: 0, y: 0, w: '100%', h: '100%' });
               }
@@ -2954,6 +2962,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
       const handleGlobalDragLeave = useCallback((e) => { e.preventDefault(); if(e.clientX===0||e.clientY===0) setIsGlobalDragging(false); }, []);
       const handleGlobalDrop = useCallback((e) => {
         e.preventDefault(); setIsGlobalDragging(false);
+        if (appMode !== 'edit') return;
         if (e.dataTransfer.files?.length) {
           const file = e.dataTransfer.files[0];
           setRecentFiles(prev => { const updated = [...prev]; if (!updated.some(f => f.name===file.name && f.size===file.size)) updated.unshift(file); return updated.slice(0, 10); });
