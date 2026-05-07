@@ -1325,7 +1325,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
                   const file = e.target.files[0]; if (!file) return; setOrganizeFile(file); setIsGeneratingThumbnails(true);
                   try {
                     const arrayBuffer = await file.arrayBuffer();
-                    const pdfDocLib = await window.PDFLib.PDFDocument.load(arrayBuffer.slice(0));
+                    const pdfDocLib = await window.PDFLib.PDFDocument.load(arrayBuffer.slice(0), { ignoreEncryption: true });
                     const libPages = pdfDocLib.getPages();
                     const loadingTask = window.pdfjsLib.getDocument({ data: arrayBuffer.slice(0), cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/', cMapPacked: true });
                     const pdfDoc = await loadingTask.promise;
@@ -1672,7 +1672,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
           if (!nUpFile || appMode !== 'nup') { setNUpPreviewUrl(null); return; }
           try {
             const bytes = await nUpFile.arrayBuffer();
-            const srcPdf = await window.PDFLib.PDFDocument.load(bytes);
+            const srcPdf = await window.PDFLib.PDFDocument.load(bytes, { ignoreEncryption: true });
             const previewPdf = await window.PDFLib.PDFDocument.create();
             const srcPages = srcPdf.getPages();
             const refPage = srcPages[0];
@@ -2337,7 +2337,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
         
         try {
           const makeBlob = async () => {
-            const pdfDocLib = await window.PDFLib.PDFDocument.load(new Uint8Array(pdfBytes));
+            const pdfDocLib = await window.PDFLib.PDFDocument.load(new Uint8Array(pdfBytes), { ignoreEncryption: true });
             pdfDocLib.registerFontkit(window.fontkit);
             await applyAnnotationsToDoc(pdfDocLib, currentPage);
             const savedPdfBytes = await pdfDocLib.save({ useObjectStreams: true });
@@ -2630,7 +2630,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
           onConfirm: async (customName, textExportMode) => {
             setSaveDialog(null); setIsExporting(true);
             try {
-              const pdfDocLib = await window.PDFLib.PDFDocument.load(new Uint8Array(pdfBytes)); 
+              const pdfDocLib = await window.PDFLib.PDFDocument.load(new Uint8Array(pdfBytes), { ignoreEncryption: true }); 
               pdfDocLib.registerFontkit(window.fontkit);
               
               await applyAnnotationsToDoc(pdfDocLib, null, textExportMode); 
@@ -2655,7 +2655,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
           onConfirm: async (customName) => {
             setSaveDialog(null); setIsExporting(true);
             try {
-              const pdfDocLib = await window.PDFLib.PDFDocument.load(new Uint8Array(pdfBytes)); pdfDocLib.registerFontkit(window.fontkit);
+              const pdfDocLib = await window.PDFLib.PDFDocument.load(new Uint8Array(pdfBytes), { ignoreEncryption: true }); pdfDocLib.registerFontkit(window.fontkit);
               await applyAnnotationsToDoc(pdfDocLib, currentPage); const savedPdfBytes = await pdfDocLib.save({ useObjectStreams: true });
               const pdfForRender = await window.pdfjsLib.getDocument({ data: savedPdfBytes, cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/', cMapPacked: true }).promise; const renderPage = await pdfForRender.getPage(currentPage);
               const viewport = renderPage.getViewport({ scale: 3.0 }); const canvas = document.createElement('canvas');
@@ -2677,7 +2677,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
             setSaveDialog(null); setIsExporting(true);
             try {
               const bytes = await nUpFile.arrayBuffer(); 
-              const srcPdf = await window.PDFLib.PDFDocument.load(bytes); 
+              const srcPdf = await window.PDFLib.PDFDocument.load(bytes, { ignoreEncryption: true }); 
               const newPdf = await window.PDFLib.PDFDocument.create();
               const srcPages = srcPdf.getPages();
               
@@ -2725,12 +2725,12 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
       const sendToTool = async (targetMode) => {
         if (!pdfBytes) return; setIsExporting(true);
         try {
-          const pdfDocLib = await window.PDFLib.PDFDocument.load(new Uint8Array(pdfBytes)); pdfDocLib.registerFontkit(window.fontkit);
+          const pdfDocLib = await window.PDFLib.PDFDocument.load(new Uint8Array(pdfBytes), { ignoreEncryption: true }); pdfDocLib.registerFontkit(window.fontkit);
           await applyAnnotationsToDoc(pdfDocLib, null); const mergedBytes = await pdfDocLib.save({ useObjectStreams: true });
           const file = new File([mergedBytes], fileName, { type: 'application/pdf' }); addToRecentFiles([file]);
           if (targetMode==='merge') setMergeFiles([file]); else if (targetMode==='split') setSplitFile(file);
           else if (targetMode==='organize') {
-            setOrganizeFile(file); const lib = await window.PDFLib.PDFDocument.load(mergedBytes);
+            setOrganizeFile(file); const lib = await window.PDFLib.PDFDocument.load(mergedBytes, { ignoreEncryption: true });
             const pages = lib.getPages().map((p, i) => ({ id: `page-${i}`, originalIndex: i, rotation: p.getRotation().angle }));
             setOrganizePages(pages); generateOrganizeThumbnails(file);
           }
@@ -2754,7 +2754,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
               const { PDFDocument, PDFName, PDFNumber, PDFHexString } = window.PDFLib; const mergedPdf = await PDFDocument.create();
               const bookmarkData = []; let currentPageOffset = 0;
               for (const file of mergeFiles) {
-                const bytes = await file.arrayBuffer(); const pdf = await PDFDocument.load(bytes); const count = pdf.getPageCount();
+                const bytes = await file.arrayBuffer(); const pdf = await PDFDocument.load(bytes, { ignoreEncryption: true }); const count = pdf.getPageCount();
                 bookmarkData.push({ title: file.name.replace(/\.[^/.]+$/, ""), startIndex: currentPageOffset });
                 const copiedPages = await mergedPdf.copyPages(pdf, pdf.getPageIndices()); copiedPages.forEach(page => mergedPdf.addPage(page)); currentPageOffset += count;
               }
@@ -2786,7 +2786,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
             setSaveDialog(null); setIsExporting(true);
             try {
               const bytes = await splitFile.arrayBuffer(); 
-              const pdf = await window.PDFLib.PDFDocument.load(bytes); 
+              const pdf = await window.PDFLib.PDFDocument.load(bytes, { ignoreEncryption: true }); 
               const total = pdf.getPageCount();
               
               let targetIndices = [];
@@ -2831,7 +2831,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
           onConfirm: async (customName) => {
             setSaveDialog(null); setIsExporting(true);
             try {
-              const bytes = await organizeFile.arrayBuffer(); const pdf = await window.PDFLib.PDFDocument.load(bytes); const newPdf = await window.PDFLib.PDFDocument.create();
+              const bytes = await organizeFile.arrayBuffer(); const pdf = await window.PDFLib.PDFDocument.load(bytes, { ignoreEncryption: true }); const newPdf = await window.PDFLib.PDFDocument.create();
               for (const pageInfo of organizePages) {
                 const [copiedPage] = await newPdf.copyPages(pdf, [pageInfo.originalIndex]); copiedPage.setRotation(window.PDFLib.degrees(pageInfo.rotation)); newPdf.addPage(copiedPage);
               }
@@ -2914,7 +2914,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
           onConfirm: async (customName) => {
             setSaveDialog(null); setIsExporting(true);
             try {
-              const bytes = await pageNumFile.arrayBuffer(); const pdf = await window.PDFLib.PDFDocument.load(bytes); const pages = pdf.getPages(); const total = pages.length;
+              const bytes = await pageNumFile.arrayBuffer(); const pdf = await window.PDFLib.PDFDocument.load(bytes, { ignoreEncryption: true }); const pages = pdf.getPages(); const total = pages.length;
               pages.forEach((page, idx) => {
                 const { width, height } = page.getSize(); const n = idx + 1; let text = pageNumFormat.replace('{n}', n).replace('{total}', total);
                 const fontSize = 12; const textWidth = text.length * (fontSize * 0.6); let x, y; const margin = 30;
