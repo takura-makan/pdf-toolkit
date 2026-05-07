@@ -1040,7 +1040,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
                   if (!newThumbs[key]) {
                     try {
                       const arrayBuffer = await file.arrayBuffer();
-                      const loadingTask = window.pdfjsLib.getDocument({ data: arrayBuffer });
+                      const loadingTask = window.pdfjsLib.getDocument({ data: arrayBuffer, cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/', cMapPacked: true });
                       const pdf = await loadingTask.promise;
                       const thumbs = [];
                       for (let i = 1; i <= pdf.numPages; i++) {
@@ -1200,7 +1200,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
                     setIsGeneratingSplitThumbnails(true);
                     try {
                       const arrayBuffer = await file.arrayBuffer();
-                      const loadingTask = window.pdfjsLib.getDocument({ data: arrayBuffer.slice(0) });
+                      const loadingTask = window.pdfjsLib.getDocument({ data: arrayBuffer.slice(0), cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/', cMapPacked: true });
                       const pdf = await loadingTask.promise;
                       const thumbs = [];
                       for (let i = 1; i <= pdf.numPages; i++) {
@@ -1327,7 +1327,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
                     const arrayBuffer = await file.arrayBuffer();
                     const pdfDocLib = await window.PDFLib.PDFDocument.load(arrayBuffer.slice(0));
                     const libPages = pdfDocLib.getPages();
-                    const loadingTask = window.pdfjsLib.getDocument({ data: arrayBuffer.slice(0) });
+                    const loadingTask = window.pdfjsLib.getDocument({ data: arrayBuffer.slice(0), cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/', cMapPacked: true });
                     const pdfDoc = await loadingTask.promise;
                     const pages = [];
                     for (let i = 1; i <= pdfDoc.numPages; i++) {
@@ -1710,7 +1710,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
             }
 
             const pdfBytes = await previewPdf.save({ useObjectStreams: true });
-            const loadingTask = window.pdfjsLib.getDocument({ data: pdfBytes });
+            const loadingTask = window.pdfjsLib.getDocument({ data: pdfBytes, cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/', cMapPacked: true });
             const pdf = await loadingTask.promise;
             const page = await pdf.getPage(1);
             const viewport = page.getViewport({ scale: 1.0 });
@@ -2342,7 +2342,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
             await applyAnnotationsToDoc(pdfDocLib, currentPage);
             const savedPdfBytes = await pdfDocLib.save({ useObjectStreams: true });
 
-            const pdfForRender = await window.pdfjsLib.getDocument({ data: savedPdfBytes }).promise;
+            const pdfForRender = await window.pdfjsLib.getDocument({ data: savedPdfBytes, cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/', cMapPacked: true }).promise;
             const renderPage = await pdfForRender.getPage(currentPage);
             const exportScale = 3.0; 
             const viewport = renderPage.getViewport({ scale: exportScale });
@@ -2439,7 +2439,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
 
       const generateOrganizeThumbnails = async (file) => {
         try {
-          const arrayBuffer = await file.arrayBuffer(); const pdf = await window.pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) }).promise; const thumbs = {};
+          const arrayBuffer = await file.arrayBuffer(); const pdf = await window.pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer), cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/', cMapPacked: true }).promise; const thumbs = {};
           for (let i = 0; i < pdf.numPages; i++) {
             const page = await pdf.getPage(i + 1); const viewport = page.getViewport({ scale: 1.5 });
             const canvas = document.createElement('canvas'); const context = canvas.getContext('2d');
@@ -2657,7 +2657,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
             try {
               const pdfDocLib = await window.PDFLib.PDFDocument.load(new Uint8Array(pdfBytes)); pdfDocLib.registerFontkit(window.fontkit);
               await applyAnnotationsToDoc(pdfDocLib, currentPage); const savedPdfBytes = await pdfDocLib.save({ useObjectStreams: true });
-              const pdfForRender = await window.pdfjsLib.getDocument({ data: savedPdfBytes }).promise; const renderPage = await pdfForRender.getPage(currentPage);
+              const pdfForRender = await window.pdfjsLib.getDocument({ data: savedPdfBytes, cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/', cMapPacked: true }).promise; const renderPage = await pdfForRender.getPage(currentPage);
               const viewport = renderPage.getViewport({ scale: 3.0 }); const canvas = document.createElement('canvas');
               canvas.width = viewport.width; canvas.height = viewport.height; const context = canvas.getContext('2d');
               await renderPage.render({ canvasContext: context, viewport }).promise; const imgDataUrl = canvas.toDataURL('image/png');
@@ -2869,7 +2869,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
           onConfirm: async (customName) => {
             setSaveDialog(null); setIsExporting(true);
             try {
-              const file = convertFiles[0]; const ab = await file.arrayBuffer(); const pdf = await window.pdfjsLib.getDocument({ data: ab }).promise; const zip = new window.JSZip();
+              const file = convertFiles[0]; const ab = await file.arrayBuffer(); const pdf = await window.pdfjsLib.getDocument({ data: ab, cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/', cMapPacked: true }).promise; const zip = new window.JSZip();
               for (let i = 1; i <= pdf.numPages; i++) {
                 const page = await pdf.getPage(i); const viewport = page.getViewport({ scale: 3.0 }); const canvas = document.createElement('canvas');
                 canvas.width = viewport.width; canvas.height = viewport.height; await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
@@ -2890,7 +2890,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
           onConfirm: async (customName) => {
             setSaveDialog(null); setIsExporting(true);
             try {
-              const file = convertFiles[0]; const ab = await file.arrayBuffer(); const pdf = await window.pdfjsLib.getDocument({ data: ab }).promise;
+              const file = convertFiles[0]; const ab = await file.arrayBuffer(); const pdf = await window.pdfjsLib.getDocument({ data: ab, cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/', cMapPacked: true }).promise;
               const pptx = new PptxGenJS();
               for (let i = 1; i <= pdf.numPages; i++) {
                 const page = await pdf.getPage(i); const viewport = page.getViewport({ scale: 3.0 }); const canvas = document.createElement('canvas');
@@ -2931,7 +2931,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
       const handleExtractText = async () => {
         setIsExporting(true); setExtractedText(''); setExtractProgress('');
         try {
-          const bytes = await extractTextFile.arrayBuffer(); const pdf = await window.pdfjsLib.getDocument({ data: bytes }).promise; let fullText = '';
+          const bytes = await extractTextFile.arrayBuffer(); const pdf = await window.pdfjsLib.getDocument({ data: bytes, cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/', cMapPacked: true }).promise; let fullText = '';
           if (extractMethod === 'normal') {
             for (let i = 1; i <= pdf.numPages; i++) {
               const page = await pdf.getPage(i); const textContent = await page.getTextContent();
