@@ -69,6 +69,22 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
 
     const cn = (...classes) => classes.filter(Boolean).join(' ');
 
+    const PPTX_QUALITY_OPTIONS = [
+      { id: 'light', label: '軽量', description: '容量優先', scale: 1.5, jpegQuality: 0.72 },
+      { id: 'standard', label: '標準', description: 'おすすめ', scale: 2.0, jpegQuality: 0.82 },
+      { id: 'high', label: '高画質', description: '画質優先', scale: 3.0, jpegQuality: 0.95 }
+    ];
+
+    const getPptxQualityOption = (value) => PPTX_QUALITY_OPTIONS.find(option => option.id === value) || PPTX_QUALITY_OPTIONS[1];
+
+    const IMAGE_QUALITY_OPTIONS = [
+      { id: 'light', label: '軽量', description: '容量優先', scale: 1.0, nUpScale: 0.9, jpegQuality: 0.68 },
+      { id: 'standard', label: '標準', description: 'おすすめ', scale: 1.8, nUpScale: 1.1, jpegQuality: 0.78 },
+      { id: 'high', label: '高画質', description: '画質優先', scale: 3.0, nUpScale: 1.8, jpegQuality: 0.92 }
+    ];
+
+    const getImageQualityOption = (value) => IMAGE_QUALITY_OPTIONS.find(option => option.id === value) || IMAGE_QUALITY_OPTIONS[1];
+
     const hexToRgb = (hex, PDFLib) => {
       if (!hex) return PDFLib.rgb(0, 0, 0);
       const r = parseInt(hex.slice(1, 3), 16) / 255;
@@ -219,6 +235,8 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
       document.body.appendChild(link); link.click();
       document.body.removeChild(link); URL.revokeObjectURL(url);
     };
+
+    const clonePdfData = (data) => data instanceof Uint8Array ? data.slice(0) : data.slice(0);
     
     const RecentFilesGallery = ({ recentFiles, onSelect, accept }) => {
       if (!recentFiles || recentFiles.length === 0) return null;
@@ -926,8 +944,8 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
         splitRange, setSplitRange, 
         splitThumbnails, setSplitThumbnails, isGeneratingSplitThumbnails, setIsGeneratingSplitThumbnails,
         organizeFile, setOrganizeFile, organizePages, setOrganizePages,
-        convertFiles, setConvertFiles, convertMode, setConvertMode,
-        pageNumFile, setPageNumFile, pageNumFormat, setPageNumFormat,
+        convertFiles, setConvertFiles, convertMode, setConvertMode, pptxQuality, setPptxQuality, imageQuality, setImageQuality,
+        pageNumFile, setPageNumFile, pageNumFormat, setPageNumFormat, pageNumFontSize, setPageNumFontSize,
         pageNumPosition, setPageNumPosition, extractTextFile, setExtractTextFile,
         extractedText, setExtractedText, handleOrganizeMoveUp, handleOrganizeMoveDown,
         handleOrganizeDelete, handleOrganizeRotate, addMergeBookmarks, setAddMergeBookmarks,
@@ -941,6 +959,8 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
       const [isGeneratingThumbnails, setIsGeneratingThumbnails] = useState(false);
       const [draggedMergeIndex, setDraggedMergeIndex] = useState(null);
       const [previewData, setPreviewData] = useState(null);
+      const [lastSplitSelectedPage, setLastSplitSelectedPage] = useState(null);
+      const splitLoadTokenRef = useRef(0);
       
       const hasPrevPreview = previewData ? previewData.currentIndex > 0 : false;
       const hasNextPreview = previewData ? previewData.currentIndex < previewData.images.length - 1 : false;
@@ -960,6 +980,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
         return () => window.removeEventListener('keydown', handleKeyDown);
       }, [previewData, hasPrevPreview, hasNextPreview]);
       const organizeGridRef = useRef(null);
+      const organizeLoadTokenRef = useRef(0);
 
       const currentIndex = previewOrganizePage ? organizePages.findIndex(p => p.id === previewOrganizePage.id) : -1;
       const hasPrev = currentIndex > 0;
@@ -1040,7 +1061,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
                   if (!newThumbs[key]) {
                     try {
                       const arrayBuffer = await file.arrayBuffer();
-                      const loadingTask = window.pdfjsLib.getDocument({ data: arrayBuffer, cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/', cMapPacked: true });
+                      const loadingTask = window.pdfjsLib.getDocument({ data: clonePdfData(arrayBuffer), cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/', cMapPacked: true });
                       const pdf = await loadingTask.promise;
                       const thumbs = [];
                       for (let i = 1; i <= pdf.numPages; i++) {
@@ -1143,49 +1164,73 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
       );
 
       if (appMode === 'split') {
-        const isPageSelected = (pageNum) => {
-          if (splitMode === 'all') return true;
-          if (!splitRange.trim()) return false;
-          const indices = new Set();
-          const total = splitThumbnails.length;
-          splitRange.split(',').forEach(part => {
-            const range = part.trim().split('-');
-            if (range.length === 1) { const n = parseInt(range[0]); if (!isNaN(n) && n>=1 && n<=total) indices.add(n); }
-            else if (range.length === 2) { const start=parseInt(range[0]),end=parseInt(range[1]); if(!isNaN(start)&&!isNaN(end)) for(let i=Math.max(1,start);i<=Math.min(total,end);i++) indices.add(i); }
-          });
-          return indices.has(pageNum);
-        };
+      const isPageSelected = (pageNum) => {
+          return selectedSplitPages.has(pageNum);
+      };
 
-        const togglePageSelection = (pageNum) => {
-          if (!splitMode.startsWith('range')) setSplitMode('range-merge');
-          
-          let currentSet = new Set();
-          const total = splitThumbnails.length;
-          if (splitRange.trim()) {
-            splitRange.split(',').forEach(part => {
-              const range = part.trim().split('-');
-              if (range.length === 1) { const n = parseInt(range[0]); if (!isNaN(n) && n>=1 && n<=total) currentSet.add(n); }
-              else if (range.length === 2) { const start=parseInt(range[0]),end=parseInt(range[1]); if(!isNaN(start)&&!isNaN(end)) for(let i=Math.max(1,start);i<=Math.min(total,end);i++) currentSet.add(i); }
-            });
-          }
+        const totalSplitPages = splitThumbnails.length;
+        const parseSplitSelection = (rangeText, includeAll = false) => {
+          const indices = new Set();
+          if (includeAll) for (let i = 1; i <= totalSplitPages; i++) indices.add(i);
+          if (!rangeText.trim()) return indices;
+          rangeText.split(',').forEach(part => {
+            const range = part.trim().split('-');
+            if (range.length === 1) { const n = parseInt(range[0]); if (!isNaN(n) && n >= 1 && n <= totalSplitPages) indices.add(n); }
+            else if (range.length === 2) {
+              const start = parseInt(range[0]), end = parseInt(range[1]);
+              if (!isNaN(start) && !isNaN(end)) {
+                const from = Math.max(1, Math.min(start, end));
+                const to = Math.min(totalSplitPages, Math.max(start, end));
+                for (let i = from; i <= to; i++) indices.add(i);
+              }
+            }
+          });
+          return indices;
+        };
+        const formatSplitSelection = (selection) => {
+          const arr = Array.from(selection).filter(n => n >= 1 && n <= totalSplitPages).sort((a,b)=>a-b);
+          if (arr.length === 0) return '';
+          const ranges = [];
+          let start = arr[0]; let end = arr[0];
+          for (let i = 1; i < arr.length; i++) {
+            if (arr[i] === end + 1) end = arr[i];
+            else { ranges.push(start === end ? `${start}` : `${start}-${end}`); start = arr[i]; end = arr[i]; }
+          }
+          ranges.push(start === end ? `${start}` : `${start}-${end}`);
+          return ranges.join(', ');
+        };
+        const selectedSplitPages = splitMode === 'all' ? parseSplitSelection('', true) : parseSplitSelection(splitRange);
+        const selectedSplitCount = selectedSplitPages.size;
+        const applySplitSelection = (selection, anchor = null) => {
+          if (!splitMode.startsWith('range')) setSplitMode('range-merge');
+          setSplitRange(formatSplitSelection(selection));
+          setLastSplitSelectedPage(anchor);
+        };
+        const selectAllSplitPages = () => applySplitSelection(parseSplitSelection('', true), 1);
+        const clearSplitSelection = () => applySplitSelection(new Set(), null);
+        const invertSplitSelection = () => {
+          const next = new Set();
+          for (let i = 1; i <= totalSplitPages; i++) if (!selectedSplitPages.has(i)) next.add(i);
+          applySplitSelection(next, null);
+        };
+        const selectSplitPattern = (pattern) => {
+          const next = new Set();
+          for (let i = 1; i <= totalSplitPages; i++) if (pattern === 'odd' ? i % 2 === 1 : i % 2 === 0) next.add(i);
+          applySplitSelection(next, next.size ? Math.min(...next) : null);
+        };
 
-          if (currentSet.has(pageNum)) { currentSet.delete(pageNum); } 
-          else { currentSet.add(pageNum); }
-
-          const arr = Array.from(currentSet).sort((a,b)=>a-b);
-          if (arr.length === 0) { setSplitRange(''); return; }
-          
-          let ranges = [];
-          let start = arr[0]; let end = arr[0];
-          for(let i = 1; i < arr.length; i++) {
-            if(arr[i] === end + 1) { end = arr[i]; }
-            else {
-              ranges.push(start === end ? `${start}` : `${start}-${end}`);
-              start = arr[i]; end = arr[i];
-            }
-          }
-          ranges.push(start === end ? `${start}` : `${start}-${end}`);
-          setSplitRange(ranges.join(', '));
+        const togglePageSelection = (pageNum, event) => {
+          const next = new Set(selectedSplitPages);
+          if (event?.shiftKey && lastSplitSelectedPage) {
+            const from = Math.min(lastSplitSelectedPage, pageNum);
+            const to = Math.max(lastSplitSelectedPage, pageNum);
+            for (let i = from; i <= to; i++) next.add(i);
+          } else if (next.has(pageNum)) {
+            next.delete(pageNum);
+          } else {
+            next.add(pageNum);
+          }
+          applySplitSelection(next, pageNum);
         };
 
         return (
@@ -1196,30 +1241,46 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
                 <FileUploader accept="application/pdf" multiple={false} 
                   onChange={async (e) => {
                     const file = e.target.files[0]; if (!file) return; 
+                    const loadToken = ++splitLoadTokenRef.current;
                     setSplitFile(file);
+                    setSplitRange('');
+                    setLastSplitSelectedPage(null);
+                    setSplitThumbnails([]);
                     setIsGeneratingSplitThumbnails(true);
                     try {
                       const arrayBuffer = await file.arrayBuffer();
-                      const loadingTask = window.pdfjsLib.getDocument({ data: arrayBuffer.slice(0), cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/', cMapPacked: true });
+                      const loadingTask = window.pdfjsLib.getDocument({ data: clonePdfData(arrayBuffer), cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/', cMapPacked: true });
                       const pdf = await loadingTask.promise;
-                      const thumbs = [];
+                    if (loadToken !== splitLoadTokenRef.current) return;
+
+                      const thumbs = Array.from({ length: pdf.numPages }, () => null);
+                      setSplitThumbnails(thumbs);
+                    setIsGeneratingSplitThumbnails(false);
+
+                    const thumbScale = pdf.numPages > 80 ? 0.35 : 0.5;
+                    const jpegQuality = pdf.numPages > 80 ? 0.65 : 0.72;
                       for (let i = 1; i <= pdf.numPages; i++) {
+                      if (loadToken !== splitLoadTokenRef.current) return;
                         const page = await pdf.getPage(i);
-                        const viewport = page.getViewport({ scale: 1.5 });
+                        const viewport = page.getViewport({ scale: thumbScale });
                         const canvas = document.createElement('canvas');
                         canvas.width = viewport.width; canvas.height = viewport.height;
-                        await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
-                        thumbs.push(canvas.toDataURL('image/jpeg', 0.8));
+                      const context = canvas.getContext('2d');
+                      context.fillStyle = '#fff';
+                      context.fillRect(0, 0, canvas.width, canvas.height);
+                        await page.render({ canvasContext: context, viewport }).promise;
+                      const thumbnail = canvas.toDataURL('image/jpeg', jpegQuality);
+                      setSplitThumbnails(prev => prev.map((thumb, index) => index === i - 1 ? thumbnail : thumb));
+                      if (i % 8 === 0) await new Promise(resolve => setTimeout(resolve, 0));
                       }
-                      setSplitThumbnails(thumbs);
-                    } catch (err) { console.error(err); } finally { setIsGeneratingSplitThumbnails(false); }
+                    } catch (err) { console.error(err); } finally { if (loadToken === splitLoadTokenRef.current) setIsGeneratingSplitThumbnails(false); }
                   }} 
                   files={[]} recentFiles={recentFiles} addToRecentFiles={addToRecentFiles} />
               ) : (
                 <div className="mb-8 w-full overflow-hidden">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 gap-2">
                     <span className="font-bold text-slate-700 truncate">{splitFile.name}</span>
-                    <button onClick={() => { setSplitFile(null); setSplitThumbnails([]); }} className="text-sm text-red-500 hover:text-red-700 font-medium shrink-0">キャンセル</button>
+                    <button onClick={() => { splitLoadTokenRef.current++; setSplitFile(null); setSplitThumbnails([]); setSplitRange(''); setLastSplitSelectedPage(null); }} className="text-sm text-red-500 hover:text-red-700 font-medium shrink-0">キャンセル</button>
                   </div>
 
                   <div className="mb-6 space-y-4">
@@ -1245,11 +1306,19 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
                         </label>
                         <label className="flex items-center gap-2.5 cursor-pointer w-fit">
                           <input type="radio" name="rangeSubMode" value="range-zip" checked={splitMode==='range-zip'} onChange={() => setSplitMode('range-zip')} disabled={!splitMode.startsWith('range')} className="w-4 h-4 text-indigo-600" />
-                          <span className={cn("text-sm font-medium", splitMode.startsWith('range') ? "text-slate-700" : "text-slate-400")}>指定したページを個別に抽出する (ZIP)</span>
-                        </label>
-                      </div>
+                        <span className={cn("text-sm font-medium", splitMode.startsWith('range') ? "text-slate-700" : "text-slate-400")}>指定したページを個別に抽出する (ZIP)</span>
+                      </label>
                     </div>
+                    <div className="mt-4 pt-4 border-t border-indigo-100 flex flex-wrap items-center gap-2">
+                      <button type="button" onClick={selectAllSplitPages} disabled={totalSplitPages === 0} className="px-3 py-1.5 rounded-lg bg-white border border-slate-200 text-xs font-bold text-slate-700 hover:border-indigo-300 hover:text-indigo-600 disabled:opacity-40">すべて選択</button>
+                      <button type="button" onClick={clearSplitSelection} disabled={selectedSplitCount === 0} className="px-3 py-1.5 rounded-lg bg-white border border-slate-200 text-xs font-bold text-slate-700 hover:border-indigo-300 hover:text-indigo-600 disabled:opacity-40">すべて解除</button>
+                      <button type="button" onClick={invertSplitSelection} disabled={totalSplitPages === 0} className="px-3 py-1.5 rounded-lg bg-white border border-slate-200 text-xs font-bold text-slate-700 hover:border-indigo-300 hover:text-indigo-600 disabled:opacity-40">反転</button>
+                      <button type="button" onClick={() => selectSplitPattern('odd')} disabled={totalSplitPages === 0} className="px-3 py-1.5 rounded-lg bg-white border border-slate-200 text-xs font-bold text-slate-700 hover:border-indigo-300 hover:text-indigo-600 disabled:opacity-40">奇数</button>
+                      <button type="button" onClick={() => selectSplitPattern('even')} disabled={totalSplitPages === 0} className="px-3 py-1.5 rounded-lg bg-white border border-slate-200 text-xs font-bold text-slate-700 hover:border-indigo-300 hover:text-indigo-600 disabled:opacity-40">偶数</button>
+                      <span className="ml-auto text-xs font-bold text-slate-500">{selectedSplitCount} / {totalSplitPages}</span>
+                    </div>
                   </div>
+                </div>
 
                   <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 max-h-[50vh] overflow-y-auto relative">
                     {isGeneratingSplitThumbnails ? (
@@ -1263,22 +1332,23 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
                           const pageNum = idx + 1;
                           const isSelected = isPageSelected(pageNum);
                           return (
-                            <div key={idx} onClick={() => togglePageSelection(pageNum)}
+                            <div key={idx} onClick={(e) => togglePageSelection(pageNum, e)} title="Shift+クリックで範囲選択"
                               className={cn("bg-white border-2 rounded-lg p-2 flex flex-col items-center shadow-sm transition-all cursor-pointer group", isSelected ? 'border-indigo-500 bg-indigo-50 scale-105' : 'border-slate-200 hover:border-indigo-300')}>
                               <div className="w-full aspect-[1/1.4] bg-slate-100 mb-2 flex items-center justify-center rounded border border-slate-200 relative overflow-hidden pointer-events-none group-hover:pointer-events-auto">
-                                <img src={thumb} className="max-w-full max-h-full object-contain pointer-events-none" />
+                  {thumb ? <img src={thumb} className="max-w-full max-h-full object-contain pointer-events-none" /> : <div className="absolute inset-0 flex items-center justify-center text-2xl font-bold text-slate-300 pointer-events-none">{pageNum}</div>}
                                 {isSelected && (
                                   <div className="absolute top-1 right-1 w-5 h-5 bg-indigo-500 rounded-full flex items-center justify-center text-white shadow-sm pointer-events-none z-10">
                                     <Icons.FileText className="w-3 h-3" />
                                   </div>
                                 )}
                                 <div className="absolute inset-0 bg-slate-900/10 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity pointer-events-none">
-                                  <button type="button" 
+                                  <button type="button" disabled={!thumb}
                                     onClick={(e) => { 
                                       e.stopPropagation(); 
+                                      if (!thumb) return;
                                       setPreviewData({ images: splitThumbnails, currentIndex: idx, getTitle: (i) => `抽出プレビュー: ${i+1}ページ目` }); 
                                     }} 
-                                    className="bg-slate-900/60 p-2 lg:p-3 rounded-full text-white backdrop-blur-sm shadow-lg transform scale-90 group-hover:scale-100 transition-transform pointer-events-auto cursor-pointer hover:bg-slate-900/80" title="拡大プレビュー">
+                                    className="bg-slate-900/60 p-2 lg:p-3 rounded-full text-white backdrop-blur-sm shadow-lg transform scale-90 group-hover:scale-100 transition-transform pointer-events-auto cursor-pointer hover:bg-slate-900/80 disabled:opacity-30 disabled:cursor-wait" title="拡大プレビュー">
                                     <Icons.ZoomIn className="w-5 h-5" />
                                   </button>
                                 </div>
@@ -1304,7 +1374,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
                   {hasPrevPreview && <button onClick={goToPrevPreview} className="absolute left-2 lg:left-4 top-1/2 -translate-y-1/2 text-white bg-white/10 hover:bg-indigo-500 rounded-full p-2 lg:p-4 transition-all z-20 cursor-pointer"><Icons.ChevronLeft className="w-6 h-6 lg:w-10 lg:h-10" /></button>}
                   {hasNextPreview && <button onClick={goToNextPreview} className="absolute right-2 lg:right-4 top-1/2 -translate-y-1/2 text-white bg-white/10 hover:bg-indigo-500 rounded-full p-2 lg:p-4 transition-all z-20 cursor-pointer"><Icons.ChevronRight className="w-6 h-6 lg:w-10 lg:h-10" /></button>}
                   
-                  <img src={previewData.images[previewData.currentIndex]} className="max-w-full max-h-[85vh] lg:max-h-[95vh] object-contain shadow-2xl bg-white cursor-default rounded-sm" onClick={(e) => e.stopPropagation()} />
+                  {previewData.images[previewData.currentIndex] ? <img src={previewData.images[previewData.currentIndex]} className="max-w-full max-h-[85vh] lg:max-h-[95vh] object-contain shadow-2xl bg-white cursor-default rounded-sm" onClick={(e) => e.stopPropagation()} /> : <div className="bg-white text-slate-400 font-bold rounded-sm shadow-2xl w-[280px] h-[396px] flex items-center justify-center cursor-default" onClick={(e) => e.stopPropagation()}>{previewData.currentIndex + 1}</div>}
                   <div className="absolute bottom-6 text-white font-bold bg-slate-900/80 px-4 py-1.5 rounded-full shadow-lg backdrop-blur-md cursor-default text-xs lg:text-sm" onClick={(e) => e.stopPropagation()}>
                     {previewData.getTitle(previewData.currentIndex)}
                   </div>
@@ -1322,30 +1392,49 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
             {!organizeFile ? (
               <FileUploader accept="application/pdf" multiple={false} recentFiles={recentFiles} addToRecentFiles={addToRecentFiles}
                 onChange={async (e) => {
-                  const file = e.target.files[0]; if (!file) return; setOrganizeFile(file); setIsGeneratingThumbnails(true);
+                  const file = e.target.files[0]; if (!file) return;
+                  const loadToken = ++organizeLoadTokenRef.current;
+                  setOrganizeFile(file); setOrganizePages([]); setIsGeneratingThumbnails(true);
                   try {
                     const arrayBuffer = await file.arrayBuffer();
-                    
-                    const loadingTask = window.pdfjsLib.getDocument({ data: arrayBuffer.slice(0), cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/', cMapPacked: true });
+                    const loadingTask = window.pdfjsLib.getDocument({ data: clonePdfData(arrayBuffer), cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/', cMapPacked: true });
                     const pdfDoc = await loadingTask.promise;
+                    if (loadToken !== organizeLoadTokenRef.current) return;
+
                     const pages = [];
+                    const fileKey = `${file.name}-${file.size}-${file.lastModified}-${Date.now()}`;
                     for (let i = 1; i <= pdfDoc.numPages; i++) {
                       const page = await pdfDoc.getPage(i);
-                      const viewport = page.getViewport({ scale: 1.0 });
+                      const rotation = page.rotate || 0;
+                      pages.push({ id: `page-${i}-${fileKey}`, originalIndex: i - 1, rotation, originalRotation: rotation, thumbnail: null });
+                    }
+                    setOrganizePages(pages);
+                    setIsGeneratingThumbnails(false);
+
+                    const thumbScale = pdfDoc.numPages > 80 ? 0.35 : 0.5;
+                    const jpegQuality = pdfDoc.numPages > 80 ? 0.65 : 0.72;
+                    for (let i = 1; i <= pdfDoc.numPages; i++) {
+                      if (loadToken !== organizeLoadTokenRef.current) return;
+                      const page = await pdfDoc.getPage(i);
+                      const viewport = page.getViewport({ scale: thumbScale });
                       const canvas = document.createElement('canvas');
                       const context = canvas.getContext('2d');
                       canvas.width = viewport.width; canvas.height = viewport.height;
-                      await page.render({ canvasContext: context, viewport: viewport }).promise;
-                      pages.push({ id: `page-${i}-${Date.now()}`, originalIndex: i - 1, rotation: page.rotate || 0, thumbnail: canvas.toDataURL('image/jpeg', 0.8) });
+                      context.fillStyle = '#fff';
+                      context.fillRect(0, 0, canvas.width, canvas.height);
+                      await page.render({ canvasContext: context, viewport }).promise;
+                      const thumbnail = canvas.toDataURL('image/jpeg', jpegQuality);
+                      const pageId = pages[i - 1].id;
+                      setOrganizePages(prev => prev.map(pageInfo => pageInfo.id === pageId ? { ...pageInfo, thumbnail } : pageInfo));
+                      if (i % 8 === 0) await new Promise(resolve => setTimeout(resolve, 0));
                     }
-                    setOrganizePages(pages);
-                  } catch (error) { console.error("サムネイル生成エラー:", error); } finally { setIsGeneratingThumbnails(false); }
+                  } catch (error) { console.error("サムネイル生成エラー:", error); } finally { if (loadToken === organizeLoadTokenRef.current) setIsGeneratingThumbnails(false); }
                 }} />
             ) : (
               <div className="mb-8 w-full overflow-hidden">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 gap-2">
                   <span className="font-bold text-slate-700 truncate">{organizeFile.name}</span>
-                  <button onClick={() => { setOrganizeFile(null); setOrganizePages([]); }} className="text-sm text-red-500 hover:text-red-700 font-medium shrink-0">キャンセル</button>
+                  <button onClick={() => { organizeLoadTokenRef.current++; setOrganizeFile(null); setOrganizePages([]); }} className="text-sm text-red-500 hover:text-red-700 font-medium shrink-0">キャンセル</button>
                 </div>
                 <div ref={organizeGridRef} className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3 bg-slate-50 p-4 rounded-xl border border-slate-200 max-h-[50vh] overflow-y-auto relative">
                   {isGeneratingThumbnails ? (
@@ -1429,6 +1518,18 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
             </div>
           </div>
 
+          <div className="mb-8">
+            <label className="block text-sm font-bold text-slate-700 mb-2">画像化品質</label>
+            <div className="grid grid-cols-1 sm:grid-cols-3 bg-slate-100 p-1 rounded-xl gap-1">
+              {IMAGE_QUALITY_OPTIONS.map((option) => (
+                <button key={option.id} onClick={() => setImageQuality(option.id)} className={cn("py-2.5 px-3 rounded-lg transition-all text-center", imageQuality === option.id ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700')}>
+                  <span className="block text-sm font-bold">{option.label}</span>
+                  <span className="block text-[11px] font-medium opacity-70">{option.description}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
           <button onClick={handleNUp} disabled={!nUpFile || isExporting} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3.5 px-4 rounded-xl disabled:opacity-50 flex items-center justify-center gap-2 shadow-sm transition-all">
             <Icons.Columns className="w-5 h-5" /> {isExporting ? '処理中...' : '割り付けてダウンロード'}
           </button>
@@ -1452,6 +1553,17 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
           ) : convertMode==='pdf2img' ? (
             <>
               <FileUploader accept="application/pdf" multiple={false} onChange={(e) => setConvertFiles([e.target.files[0]])} files={convertFiles.length>0?[convertFiles[0]]:[]} onRemove={() => setConvertFiles([])} recentFiles={recentFiles} addToRecentFiles={addToRecentFiles} />
+              <div className="mb-6">
+                <label className="block text-sm font-bold text-slate-700 mb-2">画像化品質</label>
+                <div className="grid grid-cols-1 sm:grid-cols-3 bg-slate-100 p-1 rounded-xl gap-1">
+                  {IMAGE_QUALITY_OPTIONS.map((option) => (
+                    <button key={option.id} onClick={() => setImageQuality(option.id)} className={cn("py-2.5 px-3 rounded-lg transition-all text-center", imageQuality === option.id ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700')}>
+                      <span className="block text-sm font-bold">{option.label}</span>
+                      <span className="block text-[11px] font-medium opacity-70">{option.description}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
               <button onClick={handleConvertPdf2Img} disabled={convertFiles.length===0||isExporting} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3.5 px-4 rounded-xl disabled:opacity-50 flex items-center justify-center gap-2 shadow-sm">
                 <Icons.RefreshCw className="w-5 h-5" /> {isExporting ? '処理中...' : '画像に変換'}
               </button>
@@ -1459,6 +1571,17 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
           ) : (
             <>
               <FileUploader accept="application/pdf" multiple={false} onChange={(e) => setConvertFiles([e.target.files[0]])} files={convertFiles.length>0?[convertFiles[0]]:[]} onRemove={() => setConvertFiles([])} recentFiles={recentFiles} addToRecentFiles={addToRecentFiles} />
+              <div className="mb-6">
+                <label className="block text-sm font-bold text-slate-700 mb-2">PPTX品質</label>
+                <div className="grid grid-cols-1 sm:grid-cols-3 bg-slate-100 p-1 rounded-xl gap-1">
+                  {PPTX_QUALITY_OPTIONS.map((option) => (
+                    <button key={option.id} onClick={() => setPptxQuality(option.id)} className={cn("py-2.5 px-3 rounded-lg transition-all text-center", pptxQuality === option.id ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700')}>
+                      <span className="block text-sm font-bold">{option.label}</span>
+                      <span className="block text-[11px] font-medium opacity-70">{option.description}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
               <button onClick={handleConvertPdf2Pptx} disabled={convertFiles.length===0||isExporting} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3.5 px-4 rounded-xl disabled:opacity-50 flex items-center justify-center gap-2 shadow-sm">
                 <Icons.RefreshCw className="w-5 h-5" /> {isExporting ? '処理中...' : 'PPTXに変換'}
               </button>
@@ -1470,7 +1593,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
       if (appMode === 'addPageNum') return (
         <ModeContainer title="ページ番号追加" icon={Icons.Hash}>
           <FileUploader accept="application/pdf" multiple={false} onChange={(e) => setPageNumFile(e.target.files[0])} files={pageNumFile?[pageNumFile]:[]} onRemove={() => setPageNumFile(null)} recentFiles={recentFiles} addToRecentFiles={addToRecentFiles} />
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6 mb-8">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-6 mb-8">
             <div>
               <label className="block text-sm font-bold text-slate-700 mb-2">フォーマット</label>
               <select value={pageNumFormat} onChange={e => setPageNumFormat(e.target.value)} className="w-full border border-slate-300 rounded-lg px-3 py-2.5 outline-none focus:border-indigo-500 bg-white">
@@ -1489,6 +1612,19 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
                 <option value="top-center">上部 中央</option>
                 <option value="top-right">上部 右</option>
                 <option value="top-left">上部 左</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-bold text-slate-700 mb-2">フォントサイズ</label>
+              <select value={pageNumFontSize} onChange={e => setPageNumFontSize(e.target.value)} className="w-full border border-slate-300 rounded-lg px-3 py-2.5 outline-none focus:border-indigo-500 bg-white">
+                <option value="auto">自動</option>
+                <option value="8">8 pt</option>
+                <option value="10">10 pt</option>
+                <option value="12">12 pt</option>
+                <option value="14">14 pt</option>
+                <option value="16">16 pt</option>
+                <option value="20">20 pt</option>
+                <option value="24">24 pt</option>
               </select>
             </div>
           </div>
@@ -1571,7 +1707,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
           return page;
         } catch (e) {
           console.warn("Copying page failed, using image fallback:", e);
-          const pdfjsDoc = await window.pdfjsLib.getDocument({ data: originalBytes, cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/', cMapPacked: true }).promise;
+          const pdfjsDoc = await window.pdfjsLib.getDocument({ data: clonePdfData(originalBytes), cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/', cMapPacked: true }).promise;
           const page = await pdfjsDoc.getPage(srcPageIndex + 1);
           const viewport = page.getViewport({ scale: 3.0 });
           const canvas = document.createElement('canvas');
@@ -1582,6 +1718,46 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
           newPage.drawImage(img, { x: 0, y: 0, width: newPage.getWidth(), height: newPage.getHeight() });
           return newPage;
         }
+      };
+
+      const renderPageImageToDoc = async (targetDoc, originalBytes, srcPageIndex, renderScale = 1.5, jpegQuality = 0.82, outputRotation = null) => {
+        const pdfjsDoc = await window.pdfjsLib.getDocument({ data: clonePdfData(originalBytes), cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/', cMapPacked: true }).promise;
+        const page = await pdfjsDoc.getPage(srcPageIndex + 1);
+        const baseViewport = page.getViewport(outputRotation == null ? { scale: 1.0 } : { scale: 1.0, rotation: outputRotation });
+        const renderViewport = page.getViewport(outputRotation == null ? { scale: renderScale } : { scale: renderScale, rotation: outputRotation });
+        const canvas = document.createElement('canvas');
+        canvas.width = renderViewport.width; canvas.height = renderViewport.height;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        await page.render({ canvasContext: ctx, viewport: renderViewport }).promise;
+        const img = await targetDoc.embedJpg(canvas.toDataURL('image/jpeg', jpegQuality));
+        const newPage = targetDoc.addPage([baseViewport.width, baseViewport.height]);
+        newPage.drawImage(img, { x: 0, y: 0, width: baseViewport.width, height: baseViewport.height });
+        return newPage;
+      };
+
+      const isPdfPageMostlyBlank = async (pdfBytes, pageNumber = 1) => {
+        const pdf = await window.pdfjsLib.getDocument({ data: clonePdfData(pdfBytes), cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/', cMapPacked: true }).promise;
+        const page = await pdf.getPage(pageNumber);
+        const viewport = page.getViewport({ scale: 0.45 });
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.floor(viewport.width));
+        canvas.height = Math.max(1, Math.floor(viewport.height));
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        await page.render({ canvasContext: ctx, viewport }).promise;
+        const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+        const step = 16;
+        let sampled = 0;
+        let nonWhite = 0;
+        for (let i = 0; i < data.length; i += 4 * step) {
+          sampled++;
+          const r = data[i], g = data[i + 1], b = data[i + 2], a = data[i + 3];
+          if (a > 16 && (r < 245 || g < 245 || b < 245)) nonWhite++;
+        }
+        return sampled === 0 || (nonWhite / sampled) < 0.0015;
       };
 
     　const [currentMark, setCurrentMark] = useLocalStorageState('pdf_currentMark', 'check');
@@ -1598,6 +1774,8 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
       const [addMergeBookmarks, setAddMergeBookmarks] = useLocalStorageState('pdf_addMergeBookmarks', true);
       const [splitMode, setSplitMode] = useLocalStorageState('pdf_splitMode', 'all');
       const [convertMode, setConvertMode] = useLocalStorageState('pdf_convertMode', 'img2pdf');
+      const [pptxQuality, setPptxQuality] = useLocalStorageState('pdf_pptxQuality', 'standard');
+      const [imageQuality, setImageQuality] = useLocalStorageState('pdf_imageQuality', 'standard');
       const [extractMethod, setExtractMethod] = useLocalStorageState('pdf_extractMethod', 'normal');
       const [nUpType, setNUpType] = useLocalStorageState('pdf_nUpType', '2up');
       const [nUpDirection, setNUpDirection] = useLocalStorageState('pdf_nUpDirection', 'ltr');
@@ -1648,6 +1826,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
       const [convertFiles, setConvertFiles] = useState([]);
       const [pageNumFile, setPageNumFile] = useState(null);
       const [pageNumFormat, setPageNumFormat] = useState('{n}');
+      const [pageNumFontSize, setPageNumFontSize] = useLocalStorageState('pdf_pageNumFontSize', 'auto');
       const [pageNumPosition, setPageNumPosition] = useState('bottom-center');
       const [extractTextFile, setExtractTextFile] = useState(null);
       const [extractedText, setExtractedText] = useState('');
@@ -1692,12 +1871,14 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
           if (!nUpFile || appMode !== 'nup') { setNUpPreviewUrl(null); return; }
           try {
             const bytes = await nUpFile.arrayBuffer();
-            const srcPdf = await window.PDFLib.PDFDocument.load(bytes, { ignoreEncryption: true });
-            const previewPdf = await window.PDFLib.PDFDocument.create();
-            const srcPages = srcPdf.getPages();
-      const pdfjsDoc = await window.pdfjsLib.getDocument({ data: bytes, cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/', cMapPacked: true }).promise;
-            const refPage = srcPages[0];
-            const { width: sW, height: sH } = refPage.getSize();
+            const previewPdf = await window.PDFLib.PDFDocument.create();
+      const pdfjsDoc = await window.pdfjsLib.getDocument({ data: clonePdfData(bytes), cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/', cMapPacked: true }).promise;
+            const previewQuality = getImageQualityOption(imageQuality);
+            const previewRenderScale = Math.min(previewQuality.nUpScale || previewQuality.scale, pdfjsDoc.numPages > 80 ? 1.0 : 1.25);
+            const previewJpegQuality = previewQuality.jpegQuality;
+            const refPage = await pdfjsDoc.getPage(1);
+            const refViewport = refPage.getViewport({ scale: 1.0 });
+            const { width: sW, height: sH } = refViewport;
 
             const is2Up = nUpType === '2up';
             const isSrcLandscape = sW > sH; 
@@ -1710,54 +1891,50 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
               cols = 2; rows = 2;
             }
 
-            const outW = sW;
-            const outH = sH;
+            const outW = is2Up ? sW * cols : sW;
+            const outH = is2Up ? sH * rows : sH;
             const outPage = previewPdf.addPage([outW, outH]);
             const cellW = outW / cols;
             const cellH = outH / rows;
 
             for (let j = 0; j < cols * rows; j++) {
-              if (j >= srcPages.length) break;
-              const p = srcPages[j];
-              
-      
-      const { width: pW, height: pH } = p.getSize();
+              if (j >= pdfjsDoc.numPages) break;
+      const page = await pdfjsDoc.getPage(j + 1);
+      const pageViewport = page.getViewport({ scale: 1.0 });
+      const { width: pW, height: pH } = pageViewport;
       const scale = Math.min(cellW / pW, cellH / pH);
       let col = j % cols;
       let row = Math.floor(j / cols);
       if (nUpDirection === 'rtl' && cols > 1) col = cols - 1 - col;
       const x = col * cellW + (cellW - pW * scale) / 2;
       const y = outH - (row + 1) * cellH + (cellH - pH * scale) / 2;
-      let drawAction;
-      try {
-        const embedded = await previewPdf.embedPage(p);
-        drawAction = (targetPage, dims) => targetPage.drawPage(embedded, dims);
-      } catch (e) {
-        console.warn("N-up preview embedding failed, using image fallback", e);
-        const page = await pdfjsDoc.getPage(j + 1);
-        const viewport = page.getViewport({ scale: 2.0 });
-        const canvas = document.createElement('canvas');
-        canvas.width = viewport.width; canvas.height = viewport.height;
-        await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
-        const img = await previewPdf.embedJpg(canvas.toDataURL('image/jpeg', 0.8));
-        drawAction = (targetPage, dims) => targetPage.drawImage(img, { x: dims.x, y: dims.y, width: pW * dims.xScale, height: pH * dims.yScale });
-      }
-      drawAction(outPage, { x, y, xScale: scale, yScale: scale });
+      const viewport = page.getViewport({ scale: previewRenderScale });
+      const canvas = document.createElement('canvas');
+      canvas.width = viewport.width; canvas.height = viewport.height;
+      const context = canvas.getContext('2d');
+      context.fillStyle = '#fff';
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      await page.render({ canvasContext: context, viewport }).promise;
+      const img = await previewPdf.embedJpg(canvas.toDataURL('image/jpeg', previewJpegQuality));
+      outPage.drawImage(img, { x, y, width: pW * scale, height: pH * scale });
             }
 
             const pdfBytes = await previewPdf.save({ useObjectStreams: true });
-            const loadingTask = window.pdfjsLib.getDocument({ data: pdfBytes, cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/', cMapPacked: true });
+            const loadingTask = window.pdfjsLib.getDocument({ data: clonePdfData(pdfBytes), cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/', cMapPacked: true });
             const pdf = await loadingTask.promise;
             const page = await pdf.getPage(1);
             const viewport = page.getViewport({ scale: 1.0 });
             const canvas = document.createElement('canvas');
             canvas.width = viewport.width; canvas.height = viewport.height;
-            await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
-            setNUpPreviewUrl(canvas.toDataURL());
+            const previewContext = canvas.getContext('2d');
+            previewContext.fillStyle = '#fff';
+            previewContext.fillRect(0, 0, canvas.width, canvas.height);
+            await page.render({ canvasContext: previewContext, viewport }).promise;
+            setNUpPreviewUrl(canvas.toDataURL('image/jpeg', 0.78));
           } catch (e) { console.error(e); }
         };
         generateNUpPreview();
-      }, [nUpFile, nUpType, nUpDirection, appMode]);
+      }, [nUpFile, nUpType, nUpDirection, appMode, imageQuality]);
 
       useEffect(() => {
         const checkLibs = setInterval(() => {
@@ -1921,7 +2098,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
             showToast('署名済みPDFのため読み込みをキャンセルしました', 'error'); return;
           }
 
-          const loadingTask = window.pdfjsLib.getDocument({ data: bytesCopy.slice(0), cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/', cMapPacked: true });
+          const loadingTask = window.pdfjsLib.getDocument({ data: clonePdfData(bytesCopy), cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/', cMapPacked: true });
           const pdf = await loadingTask.promise;
           setPdfDoc(pdf); setPdfBytes(bytesCopy); setFileName(name || 'document.pdf');
           setTotalPages(pdf.numPages); setCurrentPage(1); setAnnotations([]); setRedoStack([]); setSelectedId(null);
@@ -2378,7 +2555,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
             await applyAnnotationsToDoc(pdfDocLib, currentPage);
             const savedPdfBytes = await pdfDocLib.save({ useObjectStreams: true });
 
-            const pdfForRender = await window.pdfjsLib.getDocument({ data: savedPdfBytes, cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/', cMapPacked: true }).promise;
+            const pdfForRender = await window.pdfjsLib.getDocument({ data: clonePdfData(savedPdfBytes), cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/', cMapPacked: true }).promise;
             const renderPage = await pdfForRender.getPage(currentPage);
             const exportScale = 3.0; 
             const viewport = renderPage.getViewport({ scale: exportScale });
@@ -2475,12 +2652,12 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
 
       const generateOrganizeThumbnails = async (file) => {
         try {
-          const arrayBuffer = await file.arrayBuffer(); const pdf = await window.pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer), cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/', cMapPacked: true }).promise; const thumbs = {};
+          const arrayBuffer = await file.arrayBuffer(); const pdf = await window.pdfjsLib.getDocument({ data: clonePdfData(new Uint8Array(arrayBuffer)), cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/', cMapPacked: true }).promise; const thumbs = {};
           for (let i = 0; i < pdf.numPages; i++) {
-            const page = await pdf.getPage(i + 1); const viewport = page.getViewport({ scale: 1.5 });
+            const page = await pdf.getPage(i + 1); const viewport = page.getViewport({ scale: pdf.numPages > 80 ? 0.35 : 0.5 });
             const canvas = document.createElement('canvas'); const context = canvas.getContext('2d');
             canvas.width = viewport.width; canvas.height = viewport.height;
-            await page.render({ canvasContext: context, viewport }).promise; thumbs[i] = canvas.toDataURL('image/jpeg', 0.95);
+            await page.render({ canvasContext: context, viewport }).promise; thumbs[i] = canvas.toDataURL('image/jpeg', pdf.numPages > 80 ? 0.65 : 0.72);
           }
           setOrganizeThumbnails(thumbs);
         } catch (e) { console.error('Thumbnail generation error:', e); }
@@ -2693,7 +2870,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
             try {
               const pdfDocLib = await window.PDFLib.PDFDocument.load(new Uint8Array(pdfBytes), { ignoreEncryption: true }); pdfDocLib.registerFontkit(window.fontkit);
               await applyAnnotationsToDoc(pdfDocLib, currentPage); const savedPdfBytes = await pdfDocLib.save({ useObjectStreams: true });
-              const pdfForRender = await window.pdfjsLib.getDocument({ data: savedPdfBytes, cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/', cMapPacked: true }).promise; const renderPage = await pdfForRender.getPage(currentPage);
+              const pdfForRender = await window.pdfjsLib.getDocument({ data: clonePdfData(savedPdfBytes), cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/', cMapPacked: true }).promise; const renderPage = await pdfForRender.getPage(currentPage);
               const viewport = renderPage.getViewport({ scale: 3.0 }); const canvas = document.createElement('canvas');
               canvas.width = viewport.width; canvas.height = viewport.height; const context = canvas.getContext('2d');
               await renderPage.render({ canvasContext: context, viewport }).promise; const imgDataUrl = canvas.toDataURL('image/png');
@@ -2713,12 +2890,16 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
             setSaveDialog(null); setIsExporting(true);
             try {
               const bytes = await nUpFile.arrayBuffer(); 
-              const srcPdf = await window.PDFLib.PDFDocument.load(bytes, { ignoreEncryption: true }); 
-              const newPdf = await window.PDFLib.PDFDocument.create();
-              const srcPages = srcPdf.getPages();
-      const pdfjsDoc = await window.pdfjsLib.getDocument({ data: bytes, cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/', cMapPacked: true }).promise;
-              
-              const { width: sW, height: sH } = srcPages[0].getSize();
+              const newPdf = await window.PDFLib.PDFDocument.create();
+      const pdfjsDoc = await window.pdfjsLib.getDocument({ data: clonePdfData(bytes), cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/', cMapPacked: true }).promise;
+              
+              const quality = getImageQualityOption(imageQuality);
+              const totalSourcePages = pdfjsDoc.numPages;
+              const nUpRenderScale = quality.nUpScale || quality.scale;
+              const nUpJpegQuality = quality.jpegQuality;
+              const refPage = await pdfjsDoc.getPage(1);
+              const refViewport = refPage.getViewport({ scale: 1.0 });
+              const { width: sW, height: sH } = refViewport;
               const is2Up = nUpType === '2up';
               const isSrcLandscape = sW > sH;
 
@@ -2731,41 +2912,35 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
               }
 
               const pagesPerSheet = cols * rows;
-              const outW = sW;
-              const outH = sH;
+              const outW = is2Up ? sW * cols : sW;
+              const outH = is2Up ? sH * rows : sH;
 
-              for (let i = 0; i < srcPages.length; i += pagesPerSheet) {
+              for (let i = 0; i < pdfjsDoc.numPages; i += pagesPerSheet) {
                 const outPage = newPdf.addPage([outW, outH]);
                 const cellW = outW / cols;
                 const cellH = outH / rows;
                 for (let j = 0; j < pagesPerSheet; j++) {
-                  if (i + j >= srcPages.length) break;
-                  const p = srcPages[i + j];
-                  
-      
-      const { width: pW, height: pH } = p.getSize();
+                  if (i + j >= pdfjsDoc.numPages) break;
+      const page = await pdfjsDoc.getPage(i + j + 1);
+      const pageViewport = page.getViewport({ scale: 1.0 });
+      const { width: pW, height: pH } = pageViewport;
       const scale = Math.min(cellW / pW, cellH / pH);
       let col = j % cols;
       let row = Math.floor(j / cols);
       if (nUpDirection === 'rtl' && cols > 1) col = cols - 1 - col;
       const x = col * cellW + (cellW - pW * scale) / 2;
       const y = outH - (row + 1) * cellH + (cellH - pH * scale) / 2;
-      let drawAction;
-      try {
-        const embedded = await newPdf.embedPage(p);
-        drawAction = (targetPage, dims) => targetPage.drawPage(embedded, dims);
-      } catch (e) {
-        console.warn("N-up export embedding failed, using image fallback", e);
-        const page = await pdfjsDoc.getPage(i + j + 1);
-        const viewport = page.getViewport({ scale: 2.5 });
-        const canvas = document.createElement('canvas');
-        canvas.width = viewport.width; canvas.height = viewport.height;
-        await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
-        const img = await newPdf.embedJpg(canvas.toDataURL('image/jpeg', 0.9));
-        drawAction = (targetPage, dims) => targetPage.drawImage(img, { x: dims.x, y: dims.y, width: pW * dims.xScale, height: pH * dims.yScale });
-      }
-      drawAction(outPage, { x, y, xScale: scale, yScale: scale });
+      const viewport = page.getViewport({ scale: nUpRenderScale });
+      const canvas = document.createElement('canvas');
+      canvas.width = viewport.width; canvas.height = viewport.height;
+      const context = canvas.getContext('2d');
+      context.fillStyle = '#fff';
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      await page.render({ canvasContext: context, viewport }).promise;
+      const img = await newPdf.embedJpg(canvas.toDataURL('image/jpeg', nUpJpegQuality));
+      outPage.drawImage(img, { x, y, width: pW * scale, height: pH * scale });
                 }
+                if (i % (pagesPerSheet * 4) === 0) await new Promise(resolve => setTimeout(resolve, 0));
               }
               downloadFile(await newPdf.save({ useObjectStreams: true }), customName + '.pdf'); 
               showToast('割り付けを保存しました', 'success');
@@ -2782,11 +2957,12 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
           const file = new File([mergedBytes], fileName, { type: 'application/pdf' }); addToRecentFiles([file]);
           if (targetMode==='merge') setMergeFiles([file]); else if (targetMode==='split') setSplitFile(file);
           else if (targetMode==='organize') {
-            setOrganizeFile(file); const pdfjsDoc = await window.pdfjsLib.getDocument({ data: mergedBytes, cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/', cMapPacked: true }).promise;
+            setOrganizeFile(file); const pdfjsDoc = await window.pdfjsLib.getDocument({ data: clonePdfData(mergedBytes), cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/', cMapPacked: true }).promise;
             const pages = [];
             for (let i = 0; i < pdfjsDoc.numPages; i++) {
               const p = await pdfjsDoc.getPage(i + 1);
-              pages.push({ id: `page-${i}`, originalIndex: i, rotation: p.rotate || 0 });
+              const rotation = p.rotate || 0;
+              pages.push({ id: `page-${i}`, originalIndex: i, rotation, originalRotation: rotation });
             }
             setOrganizePages(pages); generateOrganizeThumbnails(file);
           }
@@ -2807,39 +2983,128 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
           onConfirm: async (customName) => {
             setSaveDialog(null); setIsExporting(true);
             try {
-              const { PDFDocument, PDFName, PDFNumber, PDFHexString } = window.PDFLib; const mergedPdf = await PDFDocument.create();
-              const bookmarkData = []; let currentPageOffset = 0;
+              const { PDFDocument, PDFName, PDFNumber, PDFHexString } = window.PDFLib;
+              const sources = [];
+              const bookmarkData = [];
+              const pageRefs = [];
+              let currentPageOffset = 0;
+
               for (const file of mergeFiles) {
-                const bytes = await file.arrayBuffer(); let pdf, count;
+                const bytes = await file.arrayBuffer();
+                const title = file.name.replace(/\.[^/.]+$/, "");
+                let pdf = null;
+                let count = 0;
+                let forceImage = false;
                 try {
                   pdf = await PDFDocument.load(bytes, { ignoreEncryption: true });
                   count = pdf.getPageCount();
-                  
-                bookmarkData.push({ title: file.name.replace(/\.[^/.]+$/, ""), startIndex: currentPageOffset });
-                
-                  for (const idx of pdf.getPageIndices()) { await copyToDoc(mergedPdf, pdf, idx, bytes); }
-                } catch (e) {
-                  console.warn("Merge loading failed, falling back to pdf.js for count:", e);
-                  const pdfjsDoc = await window.pdfjsLib.getDocument({ data: bytes, cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/', cMapPacked: true }).promise;
+                } catch (loadError) {
+                  console.warn("Direct merge loading failed, using image fallback:", loadError);
+                  const pdfjsDoc = await window.pdfjsLib.getDocument({ data: clonePdfData(bytes), cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/', cMapPacked: true }).promise;
                   count = pdfjsDoc.numPages;
-                  
-                bookmarkData.push({ title: file.name.replace(/\.[^/.]+$/, ""), startIndex: currentPageOffset });
-                
-                  for (let idx = 0; idx < count; idx++) { await copyToDoc(mergedPdf, null, idx, bytes); }
-                } currentPageOffset += count;
+                  forceImage = true;
+                }
+
+                const source = { file, bytes, pdf, count, forceImage, title, pdfjsDoc: null };
+                sources.push(source);
+                bookmarkData.push({ title, startIndex: currentPageOffset });
+                for (let idx = 0; idx < count; idx++) pageRefs.push({ source, pageIndex: idx });
+                currentPageOffset += count;
               }
-              if (addMergeBookmarks && bookmarkData.length > 0) {
-                const context = mergedPdf.context; const pages = mergedPdf.getPages(); const outlinesDictRef = context.nextRef();
-                const outlineItemRefs = bookmarkData.map(() => context.nextRef());
-                for (let i = 0; i < bookmarkData.length; i++) {
-                  const { title, startIndex } = bookmarkData[i]; const pageRef = pages[startIndex].ref;
-                  const outlineItemDict = context.obj({ Title: PDFHexString.fromText(title), Parent: outlinesDictRef, Dest: [pageRef, PDFName.of('Fit')], Prev: i > 0 ? outlineItemRefs[i-1] : undefined, Next: i < bookmarkData.length-1 ? outlineItemRefs[i+1] : undefined, });
+
+              const mergeImageScale = pageRefs.length > 80 ? 1.1 : 1.5;
+              const mergeImageQuality = pageRefs.length > 80 ? 0.74 : 0.82;
+
+              const renderMergePageImageToDoc = async (targetDoc, source, pageIndex) => {
+                if (!source.pdfjsDoc) {
+                  source.pdfjsDoc = await window.pdfjsLib.getDocument({ data: clonePdfData(source.bytes), cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/', cMapPacked: true }).promise;
+                }
+                const page = await source.pdfjsDoc.getPage(pageIndex + 1);
+                const baseViewport = page.getViewport({ scale: 1.0 });
+                const renderViewport = page.getViewport({ scale: mergeImageScale });
+                const canvas = document.createElement('canvas');
+                canvas.width = renderViewport.width; canvas.height = renderViewport.height;
+                const context = canvas.getContext('2d');
+                context.fillStyle = '#fff';
+                context.fillRect(0, 0, canvas.width, canvas.height);
+                await page.render({ canvasContext: context, viewport: renderViewport }).promise;
+                const image = await targetDoc.embedJpg(canvas.toDataURL('image/jpeg', mergeImageQuality));
+                const newPage = targetDoc.addPage([baseViewport.width, baseViewport.height]);
+                newPage.drawImage(image, { x: 0, y: 0, width: baseViewport.width, height: baseViewport.height });
+              };
+
+              const addMergedPage = async (targetDoc, pageRef, useImage) => {
+                const { source, pageIndex } = pageRef;
+                if (!useImage && !source.forceImage && source.pdf) {
+                  try {
+                    const [page] = await targetDoc.copyPages(source.pdf, [pageIndex]);
+                    targetDoc.addPage(page);
+                    return;
+                  } catch (copyError) {
+                    console.warn('Direct merge copy failed, using image fallback:', copyError);
+                  }
+                }
+                await renderMergePageImageToDoc(targetDoc, source, pageIndex);
+              };
+
+              const addBookmarks = (targetDoc) => {
+                if (!addMergeBookmarks || bookmarkData.length === 0) return;
+                const context = targetDoc.context; const pages = targetDoc.getPages(); const outlinesDictRef = context.nextRef();
+                const visibleBookmarks = bookmarkData.filter(item => pages[item.startIndex]);
+                if (visibleBookmarks.length === 0) return;
+                const outlineItemRefs = visibleBookmarks.map(() => context.nextRef());
+                for (let i = 0; i < visibleBookmarks.length; i++) {
+                  const { title, startIndex } = visibleBookmarks[i]; const pageRef = pages[startIndex].ref;
+                  const outlineItemDict = context.obj({ Title: PDFHexString.fromText(title), Parent: outlinesDictRef, Dest: [pageRef, PDFName.of('Fit')], Prev: i > 0 ? outlineItemRefs[i-1] : undefined, Next: i < visibleBookmarks.length-1 ? outlineItemRefs[i+1] : undefined, });
                   context.assign(outlineItemRefs[i], outlineItemDict);
                 }
-                const outlinesDict = context.obj({ Type: PDFName.of('Outlines'), First: outlineItemRefs[0], Last: outlineItemRefs[outlineItemRefs.length-1], Count: PDFNumber.of(bookmarkData.length), });
-                context.assign(outlinesDictRef, outlinesDict); mergedPdf.catalog.set(PDFName.of('Outlines'), outlinesDictRef);
-              }
-              downloadFile(await mergedPdf.save({ useObjectStreams: true }), customName + ".pdf"); showToast('結合しました', 'success');
+                const outlinesDict = context.obj({ Type: PDFName.of('Outlines'), First: outlineItemRefs[0], Last: outlineItemRefs[outlineItemRefs.length-1], Count: PDFNumber.of(visibleBookmarks.length), });
+                context.assign(outlinesDictRef, outlinesDict); targetDoc.catalog.set(PDFName.of('Outlines'), outlinesDictRef);
+              };
+
+              const buildMergedPdfBytes = async (useImage) => {
+                const mergedPdf = await PDFDocument.create();
+                let added = 0;
+                for (const pageRef of pageRefs) {
+                  await addMergedPage(mergedPdf, pageRef, useImage);
+                  added++;
+                  if (added % 12 === 0) await new Promise(resolve => setTimeout(resolve, 0));
+                }
+                addBookmarks(mergedPdf);
+                return await mergedPdf.save({ useObjectStreams: true });
+              };
+
+              const mergedLooksBlank = async (outputBytes) => {
+                const sample = pageRefs.slice(0, 4);
+                for (let i = 0; i < sample.length; i++) {
+                  const { source, pageIndex } = sample[i];
+                  let sourceBlank = false;
+                  try {
+                    sourceBlank = await isPdfPageMostlyBlank(source.bytes, pageIndex + 1);
+                  } catch (sourceCheckError) {
+                    console.warn('Merge source blank check failed:', sourceCheckError);
+                    continue;
+                  }
+                  if (sourceBlank) continue;
+
+                  let outputBlank = true;
+                  try {
+                    outputBlank = await isPdfPageMostlyBlank(outputBytes, i + 1);
+                  } catch (outputCheckError) {
+                    console.warn('Merge output blank check failed:', outputCheckError);
+                    return true;
+                  }
+                  if (outputBlank) return true;
+                }
+                return false;
+              };
+
+              let outputBytes = await buildMergedPdfBytes(false);
+              if (await mergedLooksBlank(outputBytes)) {
+                console.warn('Direct merge output rendered blank, using image fallback.');
+                outputBytes = await buildMergedPdfBytes(true);
+              }
+              downloadFile(outputBytes, customName + ".pdf"); showToast('結合しました', 'success');
             } catch (e) { console.error(e); showToast('結合に失敗しました', 'error'); } finally { setIsExporting(false); }
           }
         });
@@ -2856,8 +3121,18 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
             setSaveDialog(null); setIsExporting(true);
             try {
               const bytes = await splitFile.arrayBuffer(); 
-              const pdf = await window.PDFLib.PDFDocument.load(bytes, { ignoreEncryption: true }); 
-              const total = pdf.getPageCount();
+              let pdf = null;
+              let total = 0;
+              let forceImageExtraction = false;
+              try {
+                pdf = await window.PDFLib.PDFDocument.load(bytes, { ignoreEncryption: true }); 
+                total = pdf.getPageCount();
+              } catch (loadError) {
+                console.warn('Direct split loading failed, using image extraction:', loadError);
+                const pdfjsDoc = await window.pdfjsLib.getDocument({ data: clonePdfData(bytes), cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/', cMapPacked: true }).promise;
+                total = pdfjsDoc.numPages;
+                forceImageExtraction = true;
+              }
               
               let targetIndices = [];
               if (splitMode === 'all') {
@@ -2873,23 +3148,86 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
                 if (targetIndices.length === 0) { showToast('有効な範囲がありません', 'error'); setIsExporting(false); return; }
               }
 
+              const isFullRangeMerge = !isZip && targetIndices.length === total && targetIndices.every((idx, index) => idx === index);
+              if (isFullRangeMerge) {
+                downloadFile(bytes, customName + '.pdf');
+                showToast('抽出しました', 'success');
+                return;
+              }
+
+              const splitImageScale = targetIndices.length > 80 ? 1.1 : 1.5;
+              const splitImageQuality = targetIndices.length > 80 ? 0.74 : 0.82;
+
+              const addDirectSplitPage = async (targetDoc, srcPageIndex) => {
+                if (!pdf) throw new Error('No direct PDF document');
+                const [page] = await targetDoc.copyPages(pdf, [srcPageIndex]);
+                targetDoc.addPage(page);
+              };
+
+              const addSplitPage = async (targetDoc, srcPageIndex, useImage) => {
+                if (!useImage) {
+                  try {
+                    await addDirectSplitPage(targetDoc, srcPageIndex);
+                    return;
+                  } catch (copyError) {
+                    console.warn('Direct split copy failed, using image extraction:', copyError);
+                  }
+                }
+                await renderPageImageToDoc(targetDoc, bytes, srcPageIndex, splitImageScale, splitImageQuality);
+              };
+
+              const buildSplitPdfBytes = async (indices, useImage) => {
+                const newPdf = await window.PDFLib.PDFDocument.create();
+                for (const idx of indices) await addSplitPage(newPdf, idx, useImage);
+                return await newPdf.save({ useObjectStreams: true });
+              };
+
+              const extractedLooksBlank = async (pdfBytes, sourceIndices) => {
+                const sample = sourceIndices.slice(0, 4);
+                for (let i = 0; i < sample.length; i++) {
+                  let sourceBlank = false;
+                  try {
+                    sourceBlank = await isPdfPageMostlyBlank(bytes, sample[i] + 1);
+                  } catch (sourceCheckError) {
+                    console.warn('Source blank check failed:', sourceCheckError);
+                    continue;
+                  }
+                  if (sourceBlank) continue;
+
+                  let outputBlank = true;
+                  try {
+                    outputBlank = await isPdfPageMostlyBlank(pdfBytes, i + 1);
+                  } catch (outputCheckError) {
+                    console.warn('Output blank check failed:', outputCheckError);
+                    return true;
+                  }
+                  if (outputBlank) return true;
+                }
+                return false;
+              };
+
+              if (!forceImageExtraction && targetIndices.length > 0) {
+                const sampleIndices = targetIndices.slice(0, 4);
+                const probeBytes = await buildSplitPdfBytes(sampleIndices, false);
+                forceImageExtraction = await extractedLooksBlank(probeBytes, sampleIndices);
+                if (forceImageExtraction) console.warn('Direct split output rendered blank, using image extraction.');
+              }
+
               if (isZip) {
                 const zip = new window.JSZip();
                 for (const i of targetIndices) {
-                  const newPdf = await window.PDFLib.PDFDocument.create(); 
-                  
-          await copyToDoc(newPdf, pdf, i, bytes);
-                   
-                  zip.file(`${customName}_${i+1}.pdf`, await newPdf.save({ useObjectStreams: true }));
+                  zip.file(`${customName}_${i+1}.pdf`, await buildSplitPdfBytes([i], forceImageExtraction));
                 }
                 downloadFile(await zip.generateAsync({ type: 'blob' }), customName + '.zip', 'application/zip');
               } else {
-                const newPdf = await window.PDFLib.PDFDocument.create(); 
-                for (const idx of targetIndices) { await copyToDoc(newPdf, pdf, idx, bytes); }
-                downloadFile(await newPdf.save({ useObjectStreams: true }), customName + '.pdf');
+                let outputBytes = await buildSplitPdfBytes(targetIndices, forceImageExtraction);
+                if (!forceImageExtraction && await extractedLooksBlank(outputBytes, targetIndices)) {
+                  outputBytes = await buildSplitPdfBytes(targetIndices, true);
+                }
+                downloadFile(outputBytes, customName + '.pdf');
               }
               showToast('抽出しました', 'success');
-            } catch (e) { showToast('抽出に失敗しました', 'error'); } finally { setIsExporting(false); }
+            } catch (e) { console.error(e); showToast('抽出に失敗しました', 'error'); } finally { setIsExporting(false); }
           }
         });
       };
@@ -2902,14 +3240,80 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
           onConfirm: async (customName) => {
             setSaveDialog(null); setIsExporting(true);
             try {
-              const bytes = await organizeFile.arrayBuffer(); const pdf = await window.PDFLib.PDFDocument.load(bytes, { ignoreEncryption: true }); const newPdf = await window.PDFLib.PDFDocument.create();
-              for (const pageInfo of organizePages) {
-                
-          const copiedPage = await copyToDoc(newPdf, pdf, pageInfo.originalIndex, bytes);
-          copiedPage.setRotation(window.PDFLib.degrees(pageInfo.rotation));
-              }
-              downloadFile(await newPdf.save({ useObjectStreams: true }), customName + '.pdf'); showToast('整理して保存しました', 'success');
-            } catch (e) { showToast('整理に失敗しました', 'error'); } finally { setIsExporting(false); }
+              const bytes = await organizeFile.arrayBuffer();
+              const normalizeRotation = (value = 0) => ((value % 360) + 360) % 360;
+              const isUnchanged = organizePages.length > 0 && organizePages.every((pageInfo, index) => (
+                pageInfo.originalRotation !== undefined &&
+                pageInfo.originalIndex === index &&
+                normalizeRotation(pageInfo.rotation) === normalizeRotation(pageInfo.originalRotation)
+              ));
+              if (isUnchanged) {
+                downloadFile(bytes, customName + '.pdf');
+                showToast('整理して保存しました', 'success');
+                return;
+              }
+              let pdf = null;
+              let forceImageOrganize = false;
+              try {
+                pdf = await window.PDFLib.PDFDocument.load(bytes, { ignoreEncryption: true });
+              } catch (loadError) {
+                console.warn('Direct organize loading failed, using image fallback:', loadError);
+                forceImageOrganize = true;
+              }
+
+              const organizeImageScale = organizePages.length > 80 ? 1.1 : 1.5;
+              const organizeImageQuality = organizePages.length > 80 ? 0.74 : 0.82;
+              const addOrganizedPage = async (targetDoc, pageInfo, useImage) => {
+                if (!useImage && pdf) {
+                  try {
+                    const [copiedPage] = await targetDoc.copyPages(pdf, [pageInfo.originalIndex]);
+                    targetDoc.addPage(copiedPage);
+                    copiedPage.setRotation(window.PDFLib.degrees(pageInfo.rotation));
+                    return;
+                  } catch (copyError) {
+                    console.warn('Direct organize copy failed, using image fallback:', copyError);
+                  }
+                }
+                await renderPageImageToDoc(targetDoc, bytes, pageInfo.originalIndex, organizeImageScale, organizeImageQuality, pageInfo.rotation);
+              };
+
+              const buildOrganizedPdfBytes = async (useImage) => {
+                const newPdf = await window.PDFLib.PDFDocument.create();
+                for (const pageInfo of organizePages) await addOrganizedPage(newPdf, pageInfo, useImage);
+                return await newPdf.save({ useObjectStreams: true });
+              };
+
+              const organizedLooksBlank = async (outputBytes) => {
+                const sample = organizePages.slice(0, 4);
+                for (let i = 0; i < sample.length; i++) {
+                  let sourceBlank = false;
+                  try {
+                    sourceBlank = await isPdfPageMostlyBlank(bytes, sample[i].originalIndex + 1);
+                  } catch (sourceCheckError) {
+                    console.warn('Organize source blank check failed:', sourceCheckError);
+                    continue;
+                  }
+                  if (sourceBlank) continue;
+
+                  let outputBlank = true;
+                  try {
+                    outputBlank = await isPdfPageMostlyBlank(outputBytes, i + 1);
+                  } catch (outputCheckError) {
+                    console.warn('Organize output blank check failed:', outputCheckError);
+                    return true;
+                  }
+                  if (outputBlank) return true;
+                }
+                return false;
+              };
+
+              let outputBytes = await buildOrganizedPdfBytes(forceImageOrganize);
+              if (!forceImageOrganize && await organizedLooksBlank(outputBytes)) {
+                console.warn('Direct organize output rendered blank, using image fallback.');
+                outputBytes = await buildOrganizedPdfBytes(true);
+              }
+              downloadFile(outputBytes, customName + '.pdf'); showToast('整理して保存しました', 'success');
+            } catch (e) { console.error(e); showToast('整理に失敗しました', 'error'); } finally { setIsExporting(false); }
           }
         });
       };
@@ -2942,11 +3346,17 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
           onConfirm: async (customName) => {
             setSaveDialog(null); setIsExporting(true);
             try {
-              const file = convertFiles[0]; const ab = await file.arrayBuffer(); const pdf = await window.pdfjsLib.getDocument({ data: ab, cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/', cMapPacked: true }).promise; const zip = new window.JSZip();
+              const quality = getImageQualityOption(imageQuality);
+              const file = convertFiles[0]; const ab = await file.arrayBuffer(); const pdf = await window.pdfjsLib.getDocument({ data: clonePdfData(ab), cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/', cMapPacked: true }).promise; const zip = new window.JSZip();
               for (let i = 1; i <= pdf.numPages; i++) {
-                const page = await pdf.getPage(i); const viewport = page.getViewport({ scale: 3.0 }); const canvas = document.createElement('canvas');
-                canvas.width = viewport.width; canvas.height = viewport.height; await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
-                zip.file(`page_${i}.png`, canvas.toDataURL('image/png').replace(/^data:image\/png;base64,/, ""), { base64: true });
+                const page = await pdf.getPage(i); const viewport = page.getViewport({ scale: quality.scale }); const canvas = document.createElement('canvas');
+                canvas.width = viewport.width; canvas.height = viewport.height;
+                const context = canvas.getContext('2d');
+                context.fillStyle = '#fff';
+                context.fillRect(0, 0, canvas.width, canvas.height);
+                await page.render({ canvasContext: context, viewport }).promise;
+                zip.file(`page_${i}.jpg`, canvas.toDataURL('image/jpeg', quality.jpegQuality).replace(/^data:image\/jpeg;base64,/, ""), { base64: true });
+                if (i % 8 === 0) await new Promise(resolve => setTimeout(resolve, 0));
               }
               downloadFile(await zip.generateAsync({ type: 'blob' }), customName + '.zip', 'application/zip'); showToast('変換しました', 'success');
             } catch (e) { showToast('変換に失敗しました', 'error'); } finally { setIsExporting(false); }
@@ -2963,12 +3373,13 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
           onConfirm: async (customName) => {
             setSaveDialog(null); setIsExporting(true);
             try {
-              const file = convertFiles[0]; const ab = await file.arrayBuffer(); const pdf = await window.pdfjsLib.getDocument({ data: ab, cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/', cMapPacked: true }).promise;
+              const quality = getPptxQualityOption(pptxQuality);
+              const file = convertFiles[0]; const ab = await file.arrayBuffer(); const pdf = await window.pdfjsLib.getDocument({ data: clonePdfData(ab), cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/', cMapPacked: true }).promise;
               const pptx = new PptxGenJS();
               for (let i = 1; i <= pdf.numPages; i++) {
-                const page = await pdf.getPage(i); const viewport = page.getViewport({ scale: 3.0 }); const canvas = document.createElement('canvas');
+                const page = await pdf.getPage(i); const viewport = page.getViewport({ scale: quality.scale }); const canvas = document.createElement('canvas');
                 canvas.width = viewport.width; canvas.height = viewport.height; await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
-                const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
+                const dataUrl = canvas.toDataURL('image/jpeg', quality.jpegQuality);
                 const slide = pptx.addSlide();
                 slide.addImage({ data: dataUrl, x: 0, y: 0, w: '100%', h: '100%' });
               }
@@ -2987,16 +3398,53 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
           onConfirm: async (customName) => {
             setSaveDialog(null); setIsExporting(true);
             try {
-              const bytes = await pageNumFile.arrayBuffer(); const pdf = await window.PDFLib.PDFDocument.load(bytes, { ignoreEncryption: true }); const pages = pdf.getPages(); const total = pages.length;
-              pages.forEach((page, idx) => {
-                const { width, height } = page.getSize(); const n = idx + 1; let text = pageNumFormat.replace('{n}', n).replace('{total}', total);
-                const fontSize = 12; const textWidth = text.length * (fontSize * 0.6); let x, y; const margin = 30;
+              const bytes = await pageNumFile.arrayBuffer();
+              const { PDFDocument, StandardFonts, rgb } = window.PDFLib;
+              const drawPageNumber = (page, idx, total, font) => {
+                const { width, height } = page.getSize();
+                const n = idx + 1; let text = pageNumFormat.replace('{n}', n).replace('{total}', total);
+                const selectedFontSize = Number(pageNumFontSize);
+                const fontSize = Number.isFinite(selectedFontSize) && selectedFontSize > 0 ? selectedFontSize : Math.max(8, Math.min(18, Math.round(Math.min(width, height) * 0.022)));
+                const textWidth = font.widthOfTextAtSize(text, fontSize); let x, y; const margin = Math.max(20, fontSize * 2.5);
                 if (pageNumPosition.includes('left')) x = margin; else if (pageNumPosition.includes('right')) x = width - textWidth - margin; else x = width / 2 - textWidth / 2;
                 if (pageNumPosition.includes('top')) y = height - margin - fontSize; else y = margin;
-                page.drawText(text, { x, y, size: fontSize, color: window.PDFLib.rgb(0, 0, 0) });
-              });
-              downloadFile(await pdf.save({ useObjectStreams: true }), customName + '.pdf'); showToast('ページ番号を追加しました', 'success');
-            } catch (e) { showToast('追加に失敗しました', 'error'); } finally { setIsExporting(false); }
+                page.drawText(text, { x, y, size: fontSize, font, color: rgb(0, 0, 0) });
+              };
+              const validatePdfBytes = async (pdfBytes) => {
+                const pdf = await window.pdfjsLib.getDocument({ data: clonePdfData(pdfBytes), cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/', cMapPacked: true }).promise;
+                if (pdf.numPages > 0) await pdf.getPage(1);
+              };
+
+              try {
+                const pdf = await PDFDocument.load(bytes, { ignoreEncryption: true });
+                const font = await pdf.embedFont(StandardFonts.Helvetica);
+                const pages = pdf.getPages();
+                pages.forEach((page, idx) => drawPageNumber(page, idx, pages.length, font));
+                const directBytes = await pdf.save({ useObjectStreams: true });
+                await validatePdfBytes(directBytes);
+                downloadFile(directBytes, customName + '.pdf'); showToast('ページ番号を追加しました', 'success');
+              } catch (directError) {
+                console.warn('Direct page numbering failed, using image fallback:', directError);
+                const srcPdf = await window.pdfjsLib.getDocument({ data: clonePdfData(bytes), cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/', cMapPacked: true }).promise;
+                const pdf = await PDFDocument.create();
+                const font = await pdf.embedFont(StandardFonts.Helvetica);
+                for (let idx = 0; idx < srcPdf.numPages; idx++) {
+                  const srcPage = await srcPdf.getPage(idx + 1);
+                  const baseViewport = srcPage.getViewport({ scale: 1.0 });
+                  const renderViewport = srcPage.getViewport({ scale: 1.5 });
+                  const canvas = document.createElement('canvas');
+                  canvas.width = renderViewport.width; canvas.height = renderViewport.height;
+                  await srcPage.render({ canvasContext: canvas.getContext('2d'), viewport: renderViewport }).promise;
+                  const page = pdf.addPage([baseViewport.width, baseViewport.height]);
+                  const image = await pdf.embedJpg(canvas.toDataURL('image/jpeg', 0.78));
+                  page.drawImage(image, { x: 0, y: 0, width: baseViewport.width, height: baseViewport.height });
+                  drawPageNumber(page, idx, srcPdf.numPages, font);
+                }
+                const fallbackBytes = await pdf.save({ useObjectStreams: true });
+                await validatePdfBytes(fallbackBytes);
+                downloadFile(fallbackBytes, customName + '.pdf'); showToast('ページ番号を追加しました', 'success');
+              }
+            } catch (e) { console.error(e); showToast('追加に失敗しました', 'error'); } finally { setIsExporting(false); }
           }
         });
       };
@@ -3004,7 +3452,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
       const handleExtractText = async () => {
         setIsExporting(true); setExtractedText(''); setExtractProgress('');
         try {
-          const bytes = await extractTextFile.arrayBuffer(); const pdf = await window.pdfjsLib.getDocument({ data: bytes, cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/', cMapPacked: true }).promise; let fullText = '';
+          const bytes = await extractTextFile.arrayBuffer(); const pdf = await window.pdfjsLib.getDocument({ data: clonePdfData(bytes), cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/', cMapPacked: true }).promise; let fullText = '';
           if (extractMethod === 'normal') {
             for (let i = 1; i <= pdf.numPages; i++) {
               const page = await pdf.getPage(i); const textContent = await page.getTextContent();
@@ -3213,7 +3661,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
                 mergeThumbnails={mergeThumbnails} setMergeThumbnails={setMergeThumbnails} isGeneratingMergeThumbnails={isGeneratingMergeThumbnails} setIsGeneratingMergeThumbnails={setIsGeneratingMergeThumbnails}
                 splitThumbnails={splitThumbnails} setSplitThumbnails={setSplitThumbnails} isGeneratingSplitThumbnails={isGeneratingSplitThumbnails} setIsGeneratingSplitThumbnails={setIsGeneratingSplitThumbnails}
                 organizeFile={organizeFile} setOrganizeFile={setOrganizeFile} organizePages={organizePages} setOrganizePages={setOrganizePages} organizeThumbnails={organizeThumbnails} setOrganizeThumbnails={setOrganizeThumbnails} generateOrganizeThumbnails={generateOrganizeThumbnails}
-                convertFiles={convertFiles} setConvertFiles={setConvertFiles} convertMode={convertMode} setConvertMode={setConvertMode} pageNumFile={pageNumFile} setPageNumFile={setPageNumFile} pageNumFormat={pageNumFormat} setPageNumFormat={setPageNumFormat} pageNumPosition={pageNumPosition} setPageNumPosition={setPageNumPosition}
+                convertFiles={convertFiles} setConvertFiles={setConvertFiles} convertMode={convertMode} setConvertMode={setConvertMode} pptxQuality={pptxQuality} setPptxQuality={setPptxQuality} imageQuality={imageQuality} setImageQuality={setImageQuality} pageNumFile={pageNumFile} setPageNumFile={setPageNumFile} pageNumFormat={pageNumFormat} setPageNumFormat={setPageNumFormat} pageNumFontSize={pageNumFontSize} setPageNumFontSize={setPageNumFontSize} pageNumPosition={pageNumPosition} setPageNumPosition={setPageNumPosition}
                 extractTextFile={extractTextFile} setExtractTextFile={setExtractTextFile} extractedText={extractedText} setExtractedText={setExtractedText} extractMethod={extractMethod} setExtractMethod={setExtractMethod} extractProgress={extractProgress}
                 handleOrganizeMoveUp={handleOrganizeMoveUp} handleOrganizeMoveDown={handleOrganizeMoveDown} handleOrganizeDelete={handleOrganizeDelete} handleOrganizeRotate={handleOrganizeRotate} addMergeBookmarks={addMergeBookmarks} setAddMergeBookmarks={setAddMergeBookmarks} recentFiles={recentFiles} addToRecentFiles={addToRecentFiles}
                 nUpFile={nUpFile} setNUpFile={setNUpFile} nUpType={nUpType} setNUpType={setNUpType} nUpDirection={nUpDirection} setNUpDirection={setNUpDirection} nUpPreviewUrl={nUpPreviewUrl}
