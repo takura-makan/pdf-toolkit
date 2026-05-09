@@ -78,9 +78,9 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
     const getPptxQualityOption = (value) => PPTX_QUALITY_OPTIONS.find(option => option.id === value) || PPTX_QUALITY_OPTIONS[1];
 
     const IMAGE_QUALITY_OPTIONS = [
-      { id: 'light', label: '軽量', description: '容量優先', scale: 1.0, nUpScale: 0.9, jpegQuality: 0.68 },
-      { id: 'standard', label: '標準', description: 'おすすめ', scale: 1.8, nUpScale: 1.1, jpegQuality: 0.78 },
-      { id: 'high', label: '高画質', description: '画質優先', scale: 3.0, nUpScale: 1.8, jpegQuality: 0.92 }
+      { id: 'light', label: '軽量', description: '容量優先', scale: 2.0, nUpScale: 1.0, jpegQuality: 0.82 },
+      { id: 'standard', label: '標準', description: 'おすすめ', scale: 3.2, nUpScale: 1.5, jpegQuality: 0.92 },
+      { id: 'high', label: '高画質', description: '画質優先', scale: 4.2, nUpScale: 2.0, jpegQuality: 0.96 }
     ];
 
     const getImageQualityOption = (value) => IMAGE_QUALITY_OPTIONS.find(option => option.id === value) || IMAGE_QUALITY_OPTIONS[1];
@@ -237,6 +237,21 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
     };
 
     const clonePdfData = (data) => data instanceof Uint8Array ? data.slice(0) : data.slice(0);
+    const PDFJS_CMAP_URL = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/';
+    const isPdfPasswordError = (error) => error?.name === 'PasswordException' || /No password given|password/i.test(String(error?.message || ''));
+    const createPdfPasswordError = (fileName = 'PDF') => {
+      const error = new Error(`${fileName} はパスワード付きPDFのため、この処理では保存できません。パスワード保護を解除したPDFで再試行してください。`);
+      error.code = 'PDF_PASSWORD_REQUIRED';
+      return error;
+    };
+    const loadPdfJsDocument = async (data, fileName = 'PDF') => {
+      try {
+        return await window.pdfjsLib.getDocument({ data: clonePdfData(data), cMapUrl: PDFJS_CMAP_URL, cMapPacked: true }).promise;
+      } catch (error) {
+        if (isPdfPasswordError(error)) throw createPdfPasswordError(fileName);
+        throw error;
+      }
+    };
     
     const RecentFilesGallery = ({ recentFiles, onSelect, accept }) => {
       if (!recentFiles || recentFiles.length === 0) return null;
@@ -1738,7 +1753,13 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
       };
 
       const isPdfPageMostlyBlank = async (pdfBytes, pageNumber = 1) => {
-        const pdf = await window.pdfjsLib.getDocument({ data: clonePdfData(pdfBytes), cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/', cMapPacked: true }).promise;
+        let pdf;
+        try {
+          pdf = await loadPdfJsDocument(pdfBytes);
+        } catch (error) {
+          if (error?.code === 'PDF_PASSWORD_REQUIRED') return false;
+          throw error;
+        }
         const page = await pdf.getPage(pageNumber);
         const viewport = page.getViewport({ scale: 0.45 });
         const canvas = document.createElement('canvas');
@@ -1758,6 +1779,86 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
           if (a > 16 && (r < 245 || g < 245 || b < 245)) nonWhite++;
         }
         return sampled === 0 || (nonWhite / sampled) < 0.0015;
+      };
+
+      const renderedPdfLooksBlankComparedToCurrent = async (candidateBytes) => {
+        const candidates = [1, Math.ceil(totalPages / 2), totalPages].filter((page, index, pages) => page >= 1 && page <= totalPages && pages.indexOf(page) === index);
+        for (const pageNumber of candidates) {
+          let sourceBlank = false;
+          try {
+            sourceBlank = await isPdfPageMostlyBlank(pdfBytes, pageNumber);
+          } catch (sourceError) {
+            console.warn('Edit source blank check failed:', sourceError);
+            continue;
+          }
+          if (sourceBlank) continue;
+
+          let outputBlank = true;
+          try {
+            outputBlank = await isPdfPageMostlyBlank(candidateBytes, pageNumber);
+          } catch (outputError) {
+            console.warn('Edit output blank check failed:', outputError);
+            return true;
+          }
+          if (outputBlank) return true;
+        }
+        return false;
+      };
+
+      const getEditRasterSettings = (pageCount = totalPages || 1) => {
+        if (pageCount > 80) return { pdfScale: 1.0, pdfJpegQuality: 0.60, imageScale: 2.0, imageJpegQuality: 0.82 };
+        if (pageCount > 30) return { pdfScale: 1.1, pdfJpegQuality: 0.66, imageScale: 2.2, imageJpegQuality: 0.86 };
+        return { pdfScale: 1.25, pdfJpegQuality: 0.74, imageScale: 2.5, imageJpegQuality: 0.88 };
+      };
+
+      const createImageBasedPdfFromCurrent = async (renderScale = null, jpegQuality = null) => {
+        if (!pdfBytes) throw new Error('PDF is not loaded');
+        const { PDFDocument } = window.PDFLib;
+        const targetDoc = await PDFDocument.create();
+        if (window.fontkit) targetDoc.registerFontkit(window.fontkit);
+        const sourcePdf = await loadPdfJsDocument(pdfBytes, fileName || 'PDF');
+        const rasterSettings = getEditRasterSettings(sourcePdf.numPages);
+        const outputScale = renderScale ?? rasterSettings.pdfScale;
+        const outputJpegQuality = jpegQuality ?? rasterSettings.pdfJpegQuality;
+        for (let pageNumber = 1; pageNumber <= sourcePdf.numPages; pageNumber++) {
+          const sourcePage = await sourcePdf.getPage(pageNumber);
+          const baseViewport = sourcePage.getViewport({ scale: 1.0 });
+          const renderViewport = sourcePage.getViewport({ scale: outputScale });
+          const canvas = document.createElement('canvas');
+          canvas.width = renderViewport.width;
+          canvas.height = renderViewport.height;
+          const ctx = canvas.getContext('2d');
+          ctx.fillStyle = '#fff';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          await sourcePage.render({ canvasContext: ctx, viewport: renderViewport }).promise;
+          const image = await targetDoc.embedJpg(canvas.toDataURL('image/jpeg', outputJpegQuality));
+          const page = targetDoc.addPage([baseViewport.width, baseViewport.height]);
+          page.drawImage(image, { x: 0, y: 0, width: baseViewport.width, height: baseViewport.height });
+          if (pageNumber % 8 === 0) await new Promise(resolve => setTimeout(resolve, 0));
+        }
+        return targetDoc;
+      };
+
+      const createEditablePdfDoc = async (fallbackRenderScale = null, fallbackJpegQuality = null) => {
+        if (!pdfBytes) throw new Error('PDF is not loaded');
+        const { PDFDocument } = window.PDFLib;
+        try {
+          const sourceDoc = await PDFDocument.load(clonePdfData(pdfBytes), { ignoreEncryption: true });
+          const targetDoc = await PDFDocument.create();
+          if (window.fontkit) targetDoc.registerFontkit(window.fontkit);
+          const pageIndices = Array.from({ length: sourceDoc.getPageCount() }, (_, idx) => idx);
+          const copiedPages = await targetDoc.copyPages(sourceDoc, pageIndices);
+          copiedPages.forEach(page => targetDoc.addPage(page));
+          const probeBytes = await targetDoc.save({ useObjectStreams: true });
+          if (await renderedPdfLooksBlankComparedToCurrent(probeBytes)) {
+            console.warn('Direct edit PDF rebuild rendered blank, using image-based rebuild.');
+            return await createImageBasedPdfFromCurrent(fallbackRenderScale, fallbackJpegQuality);
+          }
+          return targetDoc;
+        } catch (error) {
+          console.warn('Direct edit PDF rebuild failed, using image-based rebuild:', error);
+          return await createImageBasedPdfFromCurrent(fallbackRenderScale, fallbackJpegQuality);
+        }
       };
 
     　const [currentMark, setCurrentMark] = useLocalStorageState('pdf_currentMark', 'check');
@@ -2550,12 +2651,11 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
         
         try {
           const makeBlob = async () => {
-            const pdfDocLib = await window.PDFLib.PDFDocument.load(new Uint8Array(pdfBytes), { ignoreEncryption: true });
-            pdfDocLib.registerFontkit(window.fontkit);
+            const pdfDocLib = await createEditablePdfDoc();
             await applyAnnotationsToDoc(pdfDocLib, currentPage);
             const savedPdfBytes = await pdfDocLib.save({ useObjectStreams: true });
 
-            const pdfForRender = await window.pdfjsLib.getDocument({ data: clonePdfData(savedPdfBytes), cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/', cMapPacked: true }).promise;
+            const pdfForRender = await loadPdfJsDocument(savedPdfBytes, fileName || 'PDF');
             const renderPage = await pdfForRender.getPage(currentPage);
             const exportScale = 3.0; 
             const viewport = renderPage.getViewport({ scale: exportScale });
@@ -2662,6 +2762,94 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
           setOrganizeThumbnails(thumbs);
         } catch (e) { console.error('Thumbnail generation error:', e); }
       };
+
+      const loadCanvasImage = (src) => new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = reject;
+        img.src = src;
+      });
+
+      const drawAnnotationsToCanvas = async (ctx, pageNumber, renderScale) => {
+        const pageAnnotations = annotations.filter(ann => ann.page === pageNumber);
+        const s = renderScale;
+
+        for (const ann of pageAnnotations) {
+          const color = ann.color || '#ef4444';
+          const strokeWidth = (ann.strokeWidth || 3) * s;
+          ctx.save();
+          ctx.lineCap = 'round';
+          ctx.lineJoin = 'round';
+          ctx.strokeStyle = color;
+          ctx.fillStyle = color;
+          ctx.lineWidth = strokeWidth;
+
+          if (ann.type === 'rect') {
+            ctx.strokeRect(ann.x * s, ann.y * s, ann.width * s, ann.height * s);
+          } else if (ann.type === 'solidRect') {
+            ctx.fillRect(ann.x * s, ann.y * s, ann.width * s, ann.height * s);
+          } else if (ann.type === 'highlight') {
+            ctx.globalAlpha = 0.3;
+            ctx.fillRect(ann.x * s, ann.y * s, ann.width * s, ann.height * s);
+          } else if (ann.type === 'circle' || ann.type === 'solidCircle') {
+            ctx.beginPath();
+            ctx.ellipse((ann.x + ann.width / 2) * s, (ann.y + ann.height / 2) * s, Math.abs(ann.width * s / 2), Math.abs(ann.height * s / 2), 0, 0, Math.PI * 2);
+            ann.type === 'circle' ? ctx.stroke() : ctx.fill();
+          } else if (ann.type === 'line' || ann.type === 'arrow') {
+            const x1 = ann.x1 * s, y1 = ann.y1 * s, x2 = ann.x2 * s, y2 = ann.y2 * s;
+            ctx.beginPath();
+            ctx.moveTo(x1, y1);
+            ctx.lineTo(x2, y2);
+            ctx.stroke();
+            if (ann.type === 'arrow') {
+              const angle = Math.atan2(y2 - y1, x2 - x1);
+              const headlen = Math.max(18 * s, strokeWidth * 3);
+              ctx.beginPath();
+              ctx.moveTo(x2, y2);
+              ctx.lineTo(x2 - headlen * Math.cos(angle - Math.PI / 6), y2 - headlen * Math.sin(angle - Math.PI / 6));
+              ctx.moveTo(x2, y2);
+              ctx.lineTo(x2 - headlen * Math.cos(angle + Math.PI / 6), y2 - headlen * Math.sin(angle + Math.PI / 6));
+              ctx.stroke();
+            }
+          } else if (ann.type === 'freehand' && ann.points?.length) {
+            ctx.beginPath();
+            ann.points.forEach((point, index) => {
+              if (index === 0) ctx.moveTo(point.x * s, point.y * s);
+              else ctx.lineTo(point.x * s, point.y * s);
+            });
+            ctx.stroke();
+          } else if ((ann.type === 'polygon' || ann.type === 'solidPolygon') && ann.points?.length) {
+            ctx.beginPath();
+            ann.points.forEach((point, index) => {
+              if (index === 0) ctx.moveTo(point.x * s, point.y * s);
+              else ctx.lineTo(point.x * s, point.y * s);
+            });
+            ctx.closePath();
+            if (ann.type === 'solidPolygon') ctx.fill();
+            ctx.stroke();
+          } else if (ann.type === 'image' && ann.dataUrl) {
+            const img = await loadCanvasImage(ann.dataUrl);
+            ctx.drawImage(img, ann.x * s, ann.y * s, ann.width * s, ann.height * s);
+          } else if (ann.type === 'text' && ann.text) {
+            const baseFontSize = ann.fontSize || 18;
+            const fontSize = baseFontSize * s;
+            const lines = ann.text.split('\n');
+            const maxLen = Math.max(...lines.map(line => line.length), 1);
+            if (ann.backgroundColor && ann.backgroundColor !== 'transparent') {
+              ctx.fillStyle = ann.backgroundColor;
+              ctx.fillRect(ann.x * s, (ann.y - baseFontSize * 0.2) * s, maxLen * baseFontSize * s, lines.length * baseFontSize * 1.2 * s);
+            }
+            ctx.fillStyle = color;
+            ctx.font = `bold ${fontSize}px sans-serif`;
+            ctx.textBaseline = 'alphabetic';
+            lines.forEach((line, index) => {
+              ctx.fillText(line, ann.x * s, (ann.y + baseFontSize * 0.8 + index * baseFontSize * 1.2) * s);
+            });
+          }
+
+          ctx.restore();
+        }
+      };
 
       const applyAnnotationsToDoc = async (pdfDocLib, targetPage = null, textExportMode = 'embed') => {
         let customFont = null;
@@ -2843,12 +3031,17 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
           onConfirm: async (customName, textExportMode) => {
             setSaveDialog(null); setIsExporting(true);
             try {
-              const pdfDocLib = await window.PDFLib.PDFDocument.load(new Uint8Array(pdfBytes), { ignoreEncryption: true }); 
-              pdfDocLib.registerFontkit(window.fontkit);
-              
+              if (annotations.length === 0) {
+                await loadPdfJsDocument(pdfBytes, customName + ".pdf");
+                downloadFile(pdfBytes, customName + ".pdf");
+                showToast('保存しました', 'success');
+                return;
+              }
+              const pdfDocLib = await createEditablePdfDoc();
               await applyAnnotationsToDoc(pdfDocLib, null, textExportMode); 
-              
-              downloadFile(await pdfDocLib.save({ useObjectStreams: true }), customName + ".pdf"); 
+              const savedPdfBytes = await pdfDocLib.save({ useObjectStreams: true });
+              await loadPdfJsDocument(savedPdfBytes, customName + ".pdf");
+              downloadFile(savedPdfBytes, customName + ".pdf"); 
               showToast('保存しました', 'success');
             } catch (error) { 
               console.error(error); 
@@ -2865,16 +3058,19 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
         const originalBase = fileName.includes('.') ? fileName.substring(0, fileName.lastIndexOf('.')) : fileName;
         setSaveDialog({
           type: 'image', defaultName: "edited_" + originalBase, originalName: originalBase,
-          onConfirm: async (customName) => {
+          onConfirm: async (customName, _textExportMode, selectedImageQuality = imageQuality) => {
             setSaveDialog(null); setIsExporting(true);
             try {
-              const pdfDocLib = await window.PDFLib.PDFDocument.load(new Uint8Array(pdfBytes), { ignoreEncryption: true }); pdfDocLib.registerFontkit(window.fontkit);
-              await applyAnnotationsToDoc(pdfDocLib, currentPage); const savedPdfBytes = await pdfDocLib.save({ useObjectStreams: true });
-              const pdfForRender = await window.pdfjsLib.getDocument({ data: clonePdfData(savedPdfBytes), cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/', cMapPacked: true }).promise; const renderPage = await pdfForRender.getPage(currentPage);
-              const viewport = renderPage.getViewport({ scale: 3.0 }); const canvas = document.createElement('canvas');
+              const selectedQuality = getImageQualityOption(selectedImageQuality);
+              const pdfForRender = await loadPdfJsDocument(pdfBytes, fileName || customName + ".pdf"); const renderPage = await pdfForRender.getPage(currentPage);
+              const viewport = renderPage.getViewport({ scale: selectedQuality.scale }); const canvas = document.createElement('canvas');
               canvas.width = viewport.width; canvas.height = viewport.height; const context = canvas.getContext('2d');
-              await renderPage.render({ canvasContext: context, viewport }).promise; const imgDataUrl = canvas.toDataURL('image/png');
-              const link = document.createElement("a"); link.href = imgDataUrl; link.download = customName + ".png";
+              context.fillStyle = '#fff';
+              context.fillRect(0, 0, canvas.width, canvas.height);
+              await renderPage.render({ canvasContext: context, viewport }).promise;
+              await drawAnnotationsToCanvas(context, currentPage, selectedQuality.scale);
+              const imgDataUrl = canvas.toDataURL('image/jpeg', selectedQuality.jpegQuality);
+              const link = document.createElement("a"); link.href = imgDataUrl; link.download = customName + ".jpg";
               document.body.appendChild(link); link.click(); document.body.removeChild(link); showToast('画像として保存しました', 'success');
             } catch (error) { console.error(error); showToast('画像の保存に失敗しました', 'error'); } finally { setIsExporting(false); }
           }
@@ -2952,8 +3148,11 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
       const sendToTool = async (targetMode) => {
         if (!pdfBytes) return; setIsExporting(true);
         try {
-          const pdfDocLib = await window.PDFLib.PDFDocument.load(new Uint8Array(pdfBytes), { ignoreEncryption: true }); pdfDocLib.registerFontkit(window.fontkit);
-          await applyAnnotationsToDoc(pdfDocLib, null); const mergedBytes = await pdfDocLib.save({ useObjectStreams: true });
+          let mergedBytes = pdfBytes;
+          if (annotations.length > 0) {
+            const pdfDocLib = await createEditablePdfDoc();
+            await applyAnnotationsToDoc(pdfDocLib, null); mergedBytes = await pdfDocLib.save({ useObjectStreams: true });
+          }
           const file = new File([mergedBytes], fileName, { type: 'application/pdf' }); addToRecentFiles([file]);
           if (targetMode==='merge') setMergeFiles([file]); else if (targetMode==='split') setSplitFile(file);
           else if (targetMode==='organize') {
@@ -3000,25 +3199,29 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
                   count = pdf.getPageCount();
                 } catch (loadError) {
                   console.warn("Direct merge loading failed, using image fallback:", loadError);
-                  const pdfjsDoc = await window.pdfjsLib.getDocument({ data: clonePdfData(bytes), cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/', cMapPacked: true }).promise;
+                  const pdfjsDoc = await loadPdfJsDocument(bytes, file.name);
                   count = pdfjsDoc.numPages;
                   forceImage = true;
                 }
 
-                const source = { file, bytes, pdf, count, forceImage, title, pdfjsDoc: null };
+                const source = { file, bytes, pdf, count, forceImage, title, startIndex: currentPageOffset, pdfjsDoc: null };
                 sources.push(source);
                 bookmarkData.push({ title, startIndex: currentPageOffset });
                 for (let idx = 0; idx < count; idx++) pageRefs.push({ source, pageIndex: idx });
                 currentPageOffset += count;
               }
 
-              const mergeImageScale = pageRefs.length > 80 ? 1.1 : 1.5;
-              const mergeImageQuality = pageRefs.length > 80 ? 0.74 : 0.82;
+              const getMergeImageSettings = (source) => {
+                if (source.count > 80 || pageRefs.length > 160) return { scale: 0.9, jpegQuality: 0.62 };
+                if (pageRefs.length > 80) return { scale: 1.0, jpegQuality: 0.68 };
+                return { scale: 1.35, jpegQuality: 0.78 };
+              };
 
               const renderMergePageImageToDoc = async (targetDoc, source, pageIndex) => {
                 if (!source.pdfjsDoc) {
-                  source.pdfjsDoc = await window.pdfjsLib.getDocument({ data: clonePdfData(source.bytes), cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/', cMapPacked: true }).promise;
+                  source.pdfjsDoc = await loadPdfJsDocument(source.bytes, source.file?.name || source.title);
                 }
+                const { scale: mergeImageScale, jpegQuality: mergeImageQuality } = getMergeImageSettings(source);
                 const page = await source.pdfjsDoc.getPage(pageIndex + 1);
                 const baseViewport = page.getViewport({ scale: 1.0 });
                 const renderViewport = page.getViewport({ scale: mergeImageScale });
@@ -3033,18 +3236,22 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
                 newPage.drawImage(image, { x: 0, y: 0, width: baseViewport.width, height: baseViewport.height });
               };
 
-              const addMergedPage = async (targetDoc, pageRef, useImage) => {
-                const { source, pageIndex } = pageRef;
-                if (!useImage && !source.forceImage && source.pdf) {
+              const addMergedSource = async (targetDoc, source, forceImageSources) => {
+                const shouldForceImage = forceImageSources.has(source);
+                if (!shouldForceImage && !source.forceImage && source.pdf) {
                   try {
-                    const [page] = await targetDoc.copyPages(source.pdf, [pageIndex]);
-                    targetDoc.addPage(page);
+                    const pageIndices = Array.from({ length: source.count }, (_, idx) => idx);
+                    const pages = await targetDoc.copyPages(source.pdf, pageIndices);
+                    pages.forEach(page => targetDoc.addPage(page));
                     return;
                   } catch (copyError) {
-                    console.warn('Direct merge copy failed, using image fallback:', copyError);
+                    console.warn('Direct merge source copy failed, using image fallback:', copyError);
                   }
                 }
-                await renderMergePageImageToDoc(targetDoc, source, pageIndex);
+                for (let pageIndex = 0; pageIndex < source.count; pageIndex++) {
+                  await renderMergePageImageToDoc(targetDoc, source, pageIndex);
+                  if ((pageIndex + 1) % 8 === 0) await new Promise(resolve => setTimeout(resolve, 0));
+                }
               };
 
               const addBookmarks = (targetDoc) => {
@@ -3062,22 +3269,29 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
                 context.assign(outlinesDictRef, outlinesDict); targetDoc.catalog.set(PDFName.of('Outlines'), outlinesDictRef);
               };
 
-              const buildMergedPdfBytes = async (useImage) => {
+              const buildMergedPdfBytes = async (forceImageSources = new Set()) => {
                 const mergedPdf = await PDFDocument.create();
-                let added = 0;
-                for (const pageRef of pageRefs) {
-                  await addMergedPage(mergedPdf, pageRef, useImage);
-                  added++;
-                  if (added % 12 === 0) await new Promise(resolve => setTimeout(resolve, 0));
+                for (const source of sources) {
+                  await addMergedSource(mergedPdf, source, forceImageSources);
+                  await new Promise(resolve => setTimeout(resolve, 0));
                 }
                 addBookmarks(mergedPdf);
                 return await mergedPdf.save({ useObjectStreams: true });
               };
 
-              const mergedLooksBlank = async (outputBytes) => {
-                const sample = pageRefs.slice(0, 4);
-                for (let i = 0; i < sample.length; i++) {
-                  const { source, pageIndex } = sample[i];
+              const findBlankMergeSources = async (outputBytes) => {
+                const samples = [];
+                const seen = new Set();
+                const addSample = (source, pageIndex, outputPageNumber) => {
+                  if (!source || seen.has(outputPageNumber)) return;
+                  seen.add(outputPageNumber);
+                  samples.push({ source, pageIndex, outputPageNumber });
+                };
+                pageRefs.slice(0, 4).forEach((pageRef, idx) => addSample(pageRef.source, pageRef.pageIndex, idx + 1));
+                sources.forEach(source => addSample(source, 0, source.startIndex + 1));
+
+                const blankSources = new Set();
+                for (const { source, pageIndex, outputPageNumber } of samples) {
                   let sourceBlank = false;
                   try {
                     sourceBlank = await isPdfPageMostlyBlank(source.bytes, pageIndex + 1);
@@ -3089,20 +3303,23 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
 
                   let outputBlank = true;
                   try {
-                    outputBlank = await isPdfPageMostlyBlank(outputBytes, i + 1);
+                    outputBlank = await isPdfPageMostlyBlank(outputBytes, outputPageNumber);
                   } catch (outputCheckError) {
                     console.warn('Merge output blank check failed:', outputCheckError);
-                    return true;
+                    continue;
                   }
-                  if (outputBlank) return true;
+                  if (outputBlank) blankSources.add(source);
                 }
-                return false;
+                return blankSources;
               };
 
-              let outputBytes = await buildMergedPdfBytes(false);
-              if (await mergedLooksBlank(outputBytes)) {
-                console.warn('Direct merge output rendered blank, using image fallback.');
-                outputBytes = await buildMergedPdfBytes(true);
+              const forceImageSources = new Set();
+              let outputBytes = await buildMergedPdfBytes(forceImageSources);
+              const blankSources = await findBlankMergeSources(outputBytes);
+              if (blankSources.size > 0) {
+                console.warn('Direct merge output rendered blank, using source-level image fallback.');
+                blankSources.forEach(source => forceImageSources.add(source));
+                outputBytes = await buildMergedPdfBytes(forceImageSources);
               }
               downloadFile(outputBytes, customName + ".pdf"); showToast('結合しました', 'success');
             } catch (e) { console.error(e); showToast('結合に失敗しました', 'error'); } finally { setIsExporting(false); }
@@ -3508,7 +3725,12 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
         const [customName, setCustomName] = useState(dialog.defaultName);
         const [useOriginalName, setUseOriginalName] = useState(false);
         const [textExportMode, setTextExportMode] = useState('embed'); 
+        const [imageExportQuality, setImageExportQuality] = useState(imageQuality);
         const currentName = useOriginalName ? dialog.originalName : customName;
+        const confirmSave = () => {
+          if (dialog.type === 'image') setImageQuality(imageExportQuality);
+          dialog.onConfirm(currentName, textExportMode, imageExportQuality);
+        };
 
         return (
           <div className="fixed inset-0 z-[200] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
@@ -3539,9 +3761,9 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
                 <label className="block text-sm font-bold text-slate-700 mb-2">ファイル名</label>
                 <div className={cn("flex items-center gap-2 border rounded-xl overflow-hidden focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-100", useOriginalName ? "bg-slate-100 border-slate-200" : "border-slate-300 bg-white")}>
                   <input type="text" value={currentName} onChange={(e) => setCustomName(e.target.value)} disabled={useOriginalName}
-                    onKeyDown={(e) => { if (e.key === 'Enter') dialog.onConfirm(currentName, textExportMode); if (e.key === 'Escape') onClose(); }}
+                    onKeyDown={(e) => { if (e.key === 'Enter') confirmSave(); if (e.key === 'Escape') onClose(); }}
                     className="flex-1 px-4 py-3 text-sm outline-none font-medium bg-transparent disabled:text-slate-500" autoFocus placeholder="ファイル名を入力..." />
-                  <span className="pr-4 text-sm text-slate-400 font-medium shrink-0">{dialog.type === 'pdf' ? '.pdf' : dialog.type === 'zip' ? '.zip' : dialog.type === 'pptx' ? '.pptx' : '.png'}</span>
+                  <span className="pr-4 text-sm text-slate-400 font-medium shrink-0">{dialog.type === 'pdf' ? '.pdf' : dialog.type === 'zip' ? '.zip' : dialog.type === 'pptx' ? '.pptx' : '.jpg'}</span>
                 </div>
                 <label className="flex items-center gap-2 mt-4 cursor-pointer w-max mb-4">
                   <input type="checkbox" checked={useOriginalName} onChange={(e) => setUseOriginalName(e.target.checked)} className="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500 cursor-pointer" />
@@ -3571,9 +3793,28 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
                 </div>
               )}
 
+              {dialog.type === 'image' && (
+                <div className="px-6 pb-4">
+                  <label className="block text-sm font-bold text-slate-700 mb-2">画像品質</label>
+                  <div className="grid grid-cols-3 bg-slate-100 p-1 rounded-xl gap-1">
+                    {IMAGE_QUALITY_OPTIONS.map((option) => (
+                      <button
+                        key={option.id}
+                        type="button"
+                        onClick={() => setImageExportQuality(option.id)}
+                        className={cn("py-2.5 px-2 rounded-lg transition-all text-center", imageExportQuality === option.id ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-500 hover:text-slate-700')}
+                      >
+                        <span className="block text-sm font-bold">{option.label}</span>
+                        <span className="block text-[11px] font-medium opacity-70">{option.description}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <div className="px-6 pb-6 flex gap-3">
                 <button onClick={onClose} className="flex-1 py-3 rounded-xl border border-slate-200 text-slate-600 text-sm font-bold hover:bg-slate-50 transition-all">キャンセル</button>
-                <button onClick={() => dialog.onConfirm(currentName, textExportMode)} className={cn("flex-1 py-3 rounded-xl text-white text-sm font-bold transition-all shadow-sm", dialog.type === 'pdf' ? "bg-indigo-600 hover:bg-indigo-700" : dialog.type === 'zip' ? "bg-amber-500 hover:bg-amber-600" : "bg-emerald-500 hover:bg-emerald-600")}>保存してダウンロード</button>
+                <button onClick={confirmSave} className={cn("flex-1 py-3 rounded-xl text-white text-sm font-bold transition-all shadow-sm", dialog.type === 'pdf' ? "bg-indigo-600 hover:bg-indigo-700" : dialog.type === 'zip' ? "bg-amber-500 hover:bg-amber-600" : "bg-emerald-500 hover:bg-emerald-600")}>保存してダウンロード</button>
               </div>
             </div>
           </div>
