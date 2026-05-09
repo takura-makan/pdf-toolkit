@@ -2,3 +2,7 @@ node_modules/
 dist/
 .DS_Store
 *.local
+*.pdf
+*.bak
+fix*.cjs
+apply_fixes.ps1
