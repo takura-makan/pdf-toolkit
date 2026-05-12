@@ -449,13 +449,13 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
         <>
           {props.isSidebarOpen && (
             <div 
-              className="fixed inset-0 bg-slate-900/50 z-40 lg:hidden"
+              className="absolute inset-0 bg-slate-900/50 z-40 lg:hidden"
               onClick={() => props.setIsSidebarOpen(false)}
             />
           )}
 
           <aside className={cn(
-            "fixed lg:relative inset-y-0 left-0 w-64 lg:w-72 bg-white border-r border-slate-200 flex flex-col p-5 z-50 overflow-y-auto shrink-0 shadow-2xl lg:shadow-[4px_0_24px_rgba(0,0,0,0.02)] transition-transform duration-300 ease-in-out h-full",
+            "absolute lg:relative inset-y-0 left-0 w-64 lg:w-72 bg-white border-r border-slate-200 flex flex-col p-5 z-50 overflow-y-auto shrink-0 shadow-2xl lg:shadow-[4px_0_24px_rgba(0,0,0,0.02)] transition-transform duration-300 ease-in-out h-full",
             props.isSidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
           )}>
             <div className="flex items-center justify-between mb-4 lg:hidden">
@@ -994,10 +994,55 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
       }, [previewData, hasPrevPreview, hasNextPreview]);
-      const organizeGridRef = useRef(null);
+      const organizeGridRef = useRef(null);
       const organizeLoadTokenRef = useRef(0);
+      const mergeThumbnailJobsRef = useRef(0);
 
-      const currentIndex = previewOrganizePage ? organizePages.findIndex(p => p.id === previewOrganizePage.id) : -1;
+      const getMergeFileKey = (file) => `${file.name}-${file.size}-${file.lastModified || 0}`;
+
+      const createMergeThumbnailsForFile = async (file) => {
+        const arrayBuffer = await file.arrayBuffer();
+        const loadingTask = window.pdfjsLib.getDocument({ data: clonePdfData(arrayBuffer), cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/', cMapPacked: true });
+        const pdf = await loadingTask.promise;
+        const thumbs = [];
+        for (let i = 1; i <= pdf.numPages; i++) {
+          const page = await pdf.getPage(i);
+          const viewport = page.getViewport({ scale: 1.5 });
+          const canvas = document.createElement('canvas');
+          canvas.width = viewport.width;
+          canvas.height = viewport.height;
+          await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+          thumbs.push(canvas.toDataURL('image/jpeg', 0.8));
+        }
+        return thumbs;
+      };
+
+      const addMergeFilesWithThumbnails = async (fileList) => {
+        const newFiles = Array.from(fileList || []).filter(Boolean);
+        if (newFiles.length === 0) return;
+
+        setMergeFiles(prev => [...prev, ...newFiles]);
+        mergeThumbnailJobsRef.current += 1;
+        setIsGeneratingMergeThumbnails(true);
+
+        try {
+          for (const file of newFiles) {
+            const key = getMergeFileKey(file);
+            if (mergeThumbnails[key]) continue;
+            try {
+              const thumbs = await createMergeThumbnailsForFile(file);
+              setMergeThumbnails(prev => prev[key] ? prev : { ...prev, [key]: thumbs });
+            } catch (err) {
+              console.error('Thumbnail generation failed', err);
+            }
+          }
+        } finally {
+          mergeThumbnailJobsRef.current = Math.max(0, mergeThumbnailJobsRef.current - 1);
+          if (mergeThumbnailJobsRef.current === 0) setIsGeneratingMergeThumbnails(false);
+        }
+      };
+
+      const currentIndex = previewOrganizePage ? organizePages.findIndex(p => p.id === previewOrganizePage.id) : -1;
       const hasPrev = currentIndex > 0;
       const hasNext = currentIndex < organizePages.length - 1;
 
@@ -1065,36 +1110,8 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
           <ModeContainer title="PDF結合" icon={Icons.Layers}>
             <p className="text-slate-600 mb-6 text-sm lg:text-base">複数のPDFファイルを1つのファイルに結合します。追加したファイルの中身を確認しながら、ドラッグして順番を入れ替えられます。</p>
             <FileUploader accept="application/pdf" multiple={true} 
-              onChange={async (e) => {
-                const newFiles = Array.from(e.target.files);
-                setMergeFiles([...mergeFiles, ...newFiles]);
-                
-                setIsGeneratingMergeThumbnails(true);
-                const newThumbs = { ...mergeThumbnails };
-                for (const file of newFiles) {
-                  const key = `${file.name}-${file.size}`;
-                  if (!newThumbs[key]) {
-                    try {
-                      const arrayBuffer = await file.arrayBuffer();
-                      const loadingTask = window.pdfjsLib.getDocument({ data: clonePdfData(arrayBuffer), cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/', cMapPacked: true });
-                      const pdf = await loadingTask.promise;
-                      const thumbs = [];
-                      for (let i = 1; i <= pdf.numPages; i++) {
-                        const page = await pdf.getPage(i);
-                        const viewport = page.getViewport({ scale: 1.5 });
-                        const canvas = document.createElement('canvas');
-                        canvas.width = viewport.width; canvas.height = viewport.height;
-                        await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
-                        thumbs.push(canvas.toDataURL('image/jpeg', 0.8));
-                      }
-                      newThumbs[key] = thumbs;
-                    } catch (err) { console.error('Thumbnail generation failed', err); }
-                  }
-                }
-                setMergeThumbnails(newThumbs);
-                setIsGeneratingMergeThumbnails(false);
-              }} 
-              files={[]} recentFiles={recentFiles} addToRecentFiles={addToRecentFiles} />
+              onChange={(e) => addMergeFilesWithThumbnails(e.target.files)}
+              files={[]} recentFiles={recentFiles} addToRecentFiles={addToRecentFiles} />
               
             {mergeFiles.length > 0 && (
               <div className="mt-6 space-y-3 mb-8">
@@ -1103,7 +1120,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
                   {isGeneratingMergeThumbnails && <span className="text-xs font-normal text-indigo-500 animate-pulse ml-2">プレビューを読み込み中...</span>}
                 </h3>
                 {mergeFiles.map((file, index) => {
-                  const key = `${file.name}-${file.size}`;
+                  const key = getMergeFileKey(file);
                   const thumbs = mergeThumbnails[key] || [];
                   return (
                     <div key={`${file.name}-${index}`} draggable 
@@ -1122,7 +1139,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
                           <Icons.FileText className="w-5 h-5 text-indigo-500 shrink-0 hidden sm:block" />
                           <span className="text-sm font-medium text-slate-700 truncate">{file.name}</span>
                         </div>
-                        <button onClick={() => setMergeFiles(mergeFiles.filter((_, idx) => idx !== index))} className="text-slate-400 hover:text-red-500 p-2 hover:bg-red-50 rounded-lg transition-colors shrink-0">
+                        <button onClick={() => setMergeFiles(prev => prev.filter((_, idx) => idx !== index))} className="text-slate-400 hover:text-red-500 p-2 hover:bg-red-50 rounded-lg transition-colors shrink-0">
                           <Icons.X className="w-5 h-5" />
                         </button>
                       </div>
@@ -1814,7 +1831,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
       const createImageBasedPdfFromCurrent = async (renderScale = null, jpegQuality = null) => {
         if (!pdfBytes) throw new Error('PDF is not loaded');
         const { PDFDocument } = window.PDFLib;
-        const targetDoc = await PDFDocument.create();
+        const targetDoc = await PDFDocument.create({ updateMetadata: false });
         if (window.fontkit) targetDoc.registerFontkit(window.fontkit);
         const sourcePdf = await loadPdfJsDocument(pdfBytes, fileName || 'PDF');
         const rasterSettings = getEditRasterSettings(sourcePdf.numPages);
@@ -1843,8 +1860,19 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
         if (!pdfBytes) throw new Error('PDF is not loaded');
         const { PDFDocument } = window.PDFLib;
         try {
-          const sourceDoc = await PDFDocument.load(clonePdfData(pdfBytes), { ignoreEncryption: true });
-          const targetDoc = await PDFDocument.create();
+          const sourceDoc = await PDFDocument.load(clonePdfData(pdfBytes), { ignoreEncryption: true, updateMetadata: false });
+          if (window.fontkit) sourceDoc.registerFontkit(window.fontkit);
+          try {
+            const directProbeBytes = await sourceDoc.save({ useObjectStreams: true });
+            if (!(await renderedPdfLooksBlankComparedToCurrent(directProbeBytes))) {
+              return sourceDoc;
+            }
+            console.warn('Direct edit PDF save rendered blank, rebuilding pages.');
+          } catch (directSaveError) {
+            console.warn('Direct edit PDF save failed, rebuilding pages:', directSaveError);
+          }
+
+          const targetDoc = await PDFDocument.create({ updateMetadata: false });
           if (window.fontkit) targetDoc.registerFontkit(window.fontkit);
           const pageIndices = Array.from({ length: sourceDoc.getPageCount() }, (_, idx) => idx);
           const copiedPages = await targetDoc.copyPages(sourceDoc, pageIndices);
@@ -1872,7 +1900,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
       const [currentStamp, setCurrentStamp] = useLocalStorageState('pdf_currentStamp', '承認済');
       const [currentSteelShape, setCurrentSteelShape] = useLocalStorageState('pdf_currentSteelShape', 'hBeam');
       const [eraserSize, setEraserSize] = useLocalStorageState('pdf_eraserSize', 30);
-      const [addMergeBookmarks, setAddMergeBookmarks] = useLocalStorageState('pdf_addMergeBookmarks', true);
+      const [addMergeBookmarks, setAddMergeBookmarks] = useLocalStorageState('pdf_addMergeBookmarks_v2', false);
       const [splitMode, setSplitMode] = useLocalStorageState('pdf_splitMode', 'all');
       const [convertMode, setConvertMode] = useLocalStorageState('pdf_convertMode', 'img2pdf');
       const [pptxQuality, setPptxQuality] = useLocalStorageState('pdf_pptxQuality', 'standard');
@@ -3086,7 +3114,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
             setSaveDialog(null); setIsExporting(true);
             try {
               const bytes = await nUpFile.arrayBuffer(); 
-              const newPdf = await window.PDFLib.PDFDocument.create();
+              const newPdf = await window.PDFLib.PDFDocument.create({ updateMetadata: false });
       const pdfjsDoc = await window.pdfjsLib.getDocument({ data: clonePdfData(bytes), cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/', cMapPacked: true }).promise;
               
               const quality = getImageQualityOption(imageQuality);
@@ -3195,7 +3223,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
                 let count = 0;
                 let forceImage = false;
                 try {
-                  pdf = await PDFDocument.load(bytes, { ignoreEncryption: true });
+                  pdf = await PDFDocument.load(bytes, { ignoreEncryption: true, updateMetadata: false });
                   count = pdf.getPageCount();
                 } catch (loadError) {
                   console.warn("Direct merge loading failed, using image fallback:", loadError);
@@ -3270,7 +3298,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
               };
 
               const buildMergedPdfBytes = async (forceImageSources = new Set()) => {
-                const mergedPdf = await PDFDocument.create();
+                const mergedPdf = await PDFDocument.create({ updateMetadata: false });
                 for (const source of sources) {
                   await addMergedSource(mergedPdf, source, forceImageSources);
                   await new Promise(resolve => setTimeout(resolve, 0));
@@ -3342,7 +3370,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
               let total = 0;
               let forceImageExtraction = false;
               try {
-                pdf = await window.PDFLib.PDFDocument.load(bytes, { ignoreEncryption: true }); 
+                pdf = await window.PDFLib.PDFDocument.load(bytes, { ignoreEncryption: true, updateMetadata: false }); 
                 total = pdf.getPageCount();
               } catch (loadError) {
                 console.warn('Direct split loading failed, using image extraction:', loadError);
@@ -3375,28 +3403,31 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
               const splitImageScale = targetIndices.length > 80 ? 1.1 : 1.5;
               const splitImageQuality = targetIndices.length > 80 ? 0.74 : 0.82;
 
-              const addDirectSplitPage = async (targetDoc, srcPageIndex) => {
+              const buildDirectSplitPdfBytes = async (indices) => {
                 if (!pdf) throw new Error('No direct PDF document');
-                const [page] = await targetDoc.copyPages(pdf, [srcPageIndex]);
-                targetDoc.addPage(page);
+                const newPdf = await window.PDFLib.PDFDocument.create({ updateMetadata: false });
+                const copiedPages = await newPdf.copyPages(pdf, indices);
+                copiedPages.forEach(page => newPdf.addPage(page));
+                return await newPdf.save({ useObjectStreams: true });
               };
 
-              const addSplitPage = async (targetDoc, srcPageIndex, useImage) => {
+              const buildImageSplitPdfBytes = async (indices) => {
+                const newPdf = await window.PDFLib.PDFDocument.create({ updateMetadata: false });
+                for (const idx of indices) {
+                  await renderPageImageToDoc(newPdf, bytes, idx, splitImageScale, splitImageQuality);
+                }
+                return await newPdf.save({ useObjectStreams: true });
+              };
+
+              const buildSplitPdfBytes = async (indices, useImage) => {
                 if (!useImage) {
                   try {
-                    await addDirectSplitPage(targetDoc, srcPageIndex);
-                    return;
+                    return await buildDirectSplitPdfBytes(indices);
                   } catch (copyError) {
                     console.warn('Direct split copy failed, using image extraction:', copyError);
                   }
                 }
-                await renderPageImageToDoc(targetDoc, bytes, srcPageIndex, splitImageScale, splitImageQuality);
-              };
-
-              const buildSplitPdfBytes = async (indices, useImage) => {
-                const newPdf = await window.PDFLib.PDFDocument.create();
-                for (const idx of indices) await addSplitPage(newPdf, idx, useImage);
-                return await newPdf.save({ useObjectStreams: true });
+                return await buildImageSplitPdfBytes(indices);
               };
 
               const extractedLooksBlank = async (pdfBytes, sourceIndices) => {
@@ -3472,7 +3503,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
               let pdf = null;
               let forceImageOrganize = false;
               try {
-                pdf = await window.PDFLib.PDFDocument.load(bytes, { ignoreEncryption: true });
+                pdf = await window.PDFLib.PDFDocument.load(bytes, { ignoreEncryption: true, updateMetadata: false });
               } catch (loadError) {
                 console.warn('Direct organize loading failed, using image fallback:', loadError);
                 forceImageOrganize = true;
@@ -3480,24 +3511,35 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
 
               const organizeImageScale = organizePages.length > 80 ? 1.1 : 1.5;
               const organizeImageQuality = organizePages.length > 80 ? 0.74 : 0.82;
-              const addOrganizedPage = async (targetDoc, pageInfo, useImage) => {
-                if (!useImage && pdf) {
+
+              const buildDirectOrganizedPdfBytes = async () => {
+                if (!pdf) throw new Error('No direct PDF document');
+                const newPdf = await window.PDFLib.PDFDocument.create({ updateMetadata: false });
+                const copiedPages = await newPdf.copyPages(pdf, organizePages.map(pageInfo => pageInfo.originalIndex));
+                copiedPages.forEach((copiedPage, index) => {
+                  newPdf.addPage(copiedPage);
+                  copiedPage.setRotation(window.PDFLib.degrees(organizePages[index].rotation));
+                });
+                return await newPdf.save({ useObjectStreams: true });
+              };
+
+              const buildImageOrganizedPdfBytes = async () => {
+                const newPdf = await window.PDFLib.PDFDocument.create({ updateMetadata: false });
+                for (const pageInfo of organizePages) {
+                  await renderPageImageToDoc(newPdf, bytes, pageInfo.originalIndex, organizeImageScale, organizeImageQuality, pageInfo.rotation);
+                }
+                return await newPdf.save({ useObjectStreams: true });
+              };
+
+              const buildOrganizedPdfBytes = async (useImage) => {
+                if (!useImage) {
                   try {
-                    const [copiedPage] = await targetDoc.copyPages(pdf, [pageInfo.originalIndex]);
-                    targetDoc.addPage(copiedPage);
-                    copiedPage.setRotation(window.PDFLib.degrees(pageInfo.rotation));
-                    return;
+                    return await buildDirectOrganizedPdfBytes();
                   } catch (copyError) {
                     console.warn('Direct organize copy failed, using image fallback:', copyError);
                   }
                 }
-                await renderPageImageToDoc(targetDoc, bytes, pageInfo.originalIndex, organizeImageScale, organizeImageQuality, pageInfo.rotation);
-              };
-
-              const buildOrganizedPdfBytes = async (useImage) => {
-                const newPdf = await window.PDFLib.PDFDocument.create();
-                for (const pageInfo of organizePages) await addOrganizedPage(newPdf, pageInfo, useImage);
-                return await newPdf.save({ useObjectStreams: true });
+                return await buildImageOrganizedPdfBytes();
               };
 
               const organizedLooksBlank = async (outputBytes) => {
@@ -3633,7 +3675,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
               };
 
               try {
-                const pdf = await PDFDocument.load(bytes, { ignoreEncryption: true });
+                const pdf = await PDFDocument.load(bytes, { ignoreEncryption: true, updateMetadata: false });
                 const font = await pdf.embedFont(StandardFonts.Helvetica);
                 const pages = pdf.getPages();
                 pages.forEach((page, idx) => drawPageNumber(page, idx, pages.length, font));
@@ -3643,7 +3685,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
               } catch (directError) {
                 console.warn('Direct page numbering failed, using image fallback:', directError);
                 const srcPdf = await window.pdfjsLib.getDocument({ data: clonePdfData(bytes), cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/', cMapPacked: true }).promise;
-                const pdf = await PDFDocument.create();
+                const pdf = await PDFDocument.create({ updateMetadata: false });
                 const font = await pdf.embedFont(StandardFonts.Helvetica);
                 for (let idx = 0; idx < srcPdf.numPages; idx++) {
                   const srcPage = await srcPdf.getPage(idx + 1);

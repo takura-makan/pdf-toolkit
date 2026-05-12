@@ -4,6 +4,43 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>PDF Toolkit</title>
+    <!-- Google tag (gtag.js) -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-4282Y2EFZF"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+
+      gtag('config', 'G-4282Y2EFZF');
+    </script>
+    <script>
+      window.addEventListener('DOMContentLoaded', () => {
+        if (!window.google || !google.script || !google.script.run) return;
+
+        try {
+          let clientId = localStorage.getItem('ga_client_id');
+          if (!clientId) {
+            clientId = 'c-' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+            localStorage.setItem('ga_client_id', clientId);
+          }
+
+          let sessionId = sessionStorage.getItem('ga_session_id');
+          if (!sessionId) {
+            sessionId = Date.now().toString();
+            sessionStorage.setItem('ga_session_id', sessionId);
+          }
+
+          google.script.run.sendEventToGA4('page_view', {
+            page_title: document.title,
+            page_path: '/index.html',
+            session_id: sessionId,
+            engagement_time_msec: 1000
+          }, clientId);
+        } catch (error) {
+          console.warn('GA4 event send failed:', error);
+        }
+      });
+    </script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" defer></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js" defer></script>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js" defer></script>
