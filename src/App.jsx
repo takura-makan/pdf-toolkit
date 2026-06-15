@@ -346,7 +346,36 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
       );
     };
 
-    function Header({ appMode, setAppMode, pdfDoc, isExporting, handleFileUpload, handleEditExport, handleExportAsImage, isSidebarOpen, setSidebarOpen }) {
+    const ImagePreviewModal = ({ src, fallbackSrc, onClose, onPrev, onNext, hasPrev, hasNext, title, rotation = 0, placeholderLabel }) => {
+      const containerRef = useRef(null);
+      useEffect(() => { containerRef.current?.focus(); }, []);
+      const handleKeyDown = (e) => {
+        if (e.key !== 'Tab') return;
+        const focusables = containerRef.current?.querySelectorAll('button');
+        if (!focusables || focusables.length === 0) return;
+        const first = focusables[0];
+        const last = focusables[focusables.length - 1];
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+      };
+      const imageSrc = src || fallbackSrc;
+      return (
+        <div ref={containerRef} role="dialog" aria-modal="true" aria-label={title} tabIndex={-1} onKeyDown={handleKeyDown}
+          className="fixed inset-0 z-[200] bg-slate-900/90 backdrop-blur-md flex items-center justify-center p-2 lg:p-4 cursor-pointer outline-none" onClick={onClose}>
+          <div className="relative w-full h-full flex flex-col items-center justify-center">
+            <button onClick={(e) => { e.stopPropagation(); onClose(); }} aria-label="閉じる" title="閉じる" className="absolute top-4 right-4 text-white bg-slate-900/50 hover:bg-red-500 rounded-full p-2 transition z-10 cursor-pointer"><Icons.X className="w-6 h-6 lg:w-8 lg:h-8" /></button>
+            {hasPrev && <button onClick={onPrev} aria-label="前のページ" title="前のページ" className="absolute left-2 lg:left-4 top-1/2 -translate-y-1/2 text-white bg-slate-900/60 hover:bg-indigo-500 rounded-full p-2 lg:p-4 transition-all z-20 cursor-pointer shadow-lg backdrop-blur-sm ring-1 ring-white/20"><Icons.ChevronLeft className="w-6 h-6 lg:w-10 lg:h-10" /></button>}
+            {hasNext && <button onClick={onNext} aria-label="次のページ" title="次のページ" className="absolute right-2 lg:right-4 top-1/2 -translate-y-1/2 text-white bg-slate-900/60 hover:bg-indigo-500 rounded-full p-2 lg:p-4 transition-all z-20 cursor-pointer shadow-lg backdrop-blur-sm ring-1 ring-white/20"><Icons.ChevronRight className="w-6 h-6 lg:w-10 lg:h-10" /></button>}
+            {imageSrc
+              ? <img src={imageSrc} alt={title} className="w-auto h-[92vh] max-w-[96vw] object-contain shadow-2xl bg-white cursor-default rounded-sm" style={rotation ? { transform: `rotate(${rotation}deg)` } : undefined} onClick={(e) => e.stopPropagation()} />
+              : <div className="bg-white text-slate-400 font-bold rounded-sm shadow-2xl w-[280px] h-[396px] flex items-center justify-center cursor-default" onClick={(e) => e.stopPropagation()}>{placeholderLabel}</div>}
+            <div className="absolute bottom-6 text-white font-bold bg-slate-900/80 px-4 py-1.5 rounded-full shadow-lg backdrop-blur-md cursor-default text-xs lg:text-sm" onClick={(e) => e.stopPropagation()}>{title}</div>
+          </div>
+        </div>
+      );
+    };
+
+    function Header({ appMode, setAppMode, pdfDoc, isExporting, handleFileUpload, handleEditExport, handleExportAsImage, isSidebarOpen, setSidebarOpen }) {
       const modes = [
         { id: 'edit', icon: Icons.PenTool, label: '編集' },
         { id: 'merge', icon: Icons.Layers, label: '結合' },
@@ -731,7 +760,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
 
             <div className="space-y-2 mb-8">
               <div className="flex gap-2">
-                <button onClick={props.handleUndo} disabled={props.annotations.length === 0} className="flex-1 flex items-center justify-center gap-2 px-2 py-2.5 rounded-lg text-sm font-medium text-slate-600 bg-slate-50 hover:bg-slate-100 border border-slate-200 disabled:opacity-50 transition-all">
+                <button onClick={props.handleUndo} disabled={props.undoStack.length === 0} className="flex-1 flex items-center justify-center gap-2 px-2 py-2.5 rounded-lg text-sm font-medium text-slate-600 bg-slate-50 hover:bg-slate-100 border border-slate-200 disabled:opacity-50 transition-all">
                   <Icons.Undo2 className="w-4 h-4" /> 戻す
                 </button>
                 <button onClick={props.handleRedo} disabled={props.redoStack.length === 0} className="flex-1 flex items-center justify-center gap-2 px-2 py-2.5 rounded-lg text-sm font-medium text-slate-600 bg-slate-50 hover:bg-slate-100 border border-slate-200 disabled:opacity-50 transition-all">
@@ -771,7 +800,27 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
                 )}
               </div>
             )}
-          </aside>
+                      <details className="mt-6 pt-6 border-t border-slate-200">
+              <summary className="flex items-center gap-2 text-xs font-bold text-slate-400 uppercase tracking-wider cursor-pointer list-none hover:text-slate-600 select-none">
+                <Icons.Hash className="w-4 h-4" /> ショートカット
+              </summary>
+              <ul className="mt-3 space-y-2 text-xs text-slate-500">
+                {[
+                  ['元に戻す / やり直す', 'Ctrl+Z / Y'],
+                  ['選択中を削除', 'Delete'],
+                  ['コピー / 貼り付け', 'Ctrl+C / V'],
+                  ['画面移動（パン）', 'Space+ドラッグ'],
+                  ['拡大 / 縮小', 'Ctrl+ホイール'],
+                  ['直線を45°刻み', 'Shift'],
+                ].map(([label, keys]) => (
+                  <li key={label} className="flex items-center justify-between gap-2">
+                    <span>{label}</span>
+                    <kbd className="px-1.5 py-0.5 rounded bg-slate-100 border border-slate-200 font-mono text-[10px] text-slate-600 whitespace-nowrap">{keys}</kbd>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          </aside>
         </>
       );
     }
@@ -791,21 +840,26 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
         <div className="flex-1 bg-slate-100 overflow-auto flex flex-col relative w-full">
           <div className="bg-white/90 backdrop-blur-md border-b border-slate-200 p-2 lg:p-2.5 flex flex-wrap items-center justify-center gap-2 lg:gap-6 sticky top-0 z-20 shadow-sm">
             <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg">
-              <button onClick={() => setScale(s => Math.max(0.2, s - 0.2))} className="w-8 h-8 flex items-center justify-center text-slate-600 hover:bg-white hover:shadow-sm rounded-md transition-all">
+              <button onClick={() => setScale(s => Math.max(0.2, s - 0.2))} aria-label="縮小" title="縮小" className="w-8 h-8 flex items-center justify-center text-slate-600 hover:bg-white hover:shadow-sm rounded-md transition-all">
                 <Icons.ZoomOut className="w-4 h-4" />
               </button>
-              <span className="text-sm font-bold w-12 lg:w-16 text-center text-slate-700">{Math.round(scale * 100)}%</span>
-              <button onClick={() => setScale(s => Math.min(3.0, s + 0.2))} className="w-8 h-8 flex items-center justify-center text-slate-600 hover:bg-white hover:shadow-sm rounded-md transition-all">
+              <button onClick={() => setScale(1.0)} title="クリックで100%に戻す" aria-label="ズームを100%に戻す" className="text-sm font-bold w-12 lg:w-16 text-center text-slate-700 hover:text-indigo-600 transition-colors">{Math.round(scale * 100)}%</button>
+              <button onClick={() => setScale(s => Math.min(3.0, s + 0.2))} aria-label="拡大" title="拡大" className="w-8 h-8 flex items-center justify-center text-slate-600 hover:bg-white hover:shadow-sm rounded-md transition-all">
                 <Icons.ZoomIn className="w-4 h-4" />
               </button>
             </div>
-            <div className="w-px h-6 bg-slate-300 hidden lg:block"></div>
+            <div className="flex items-center bg-slate-100 p-1 rounded-lg">
+              <button onClick={() => { const c = wrapperRef.current?.parentElement; if (c && pageDimensions.width) { const a = c.clientWidth - 48; if (a > 0) setScale(Math.min(3.0, Math.max(0.2, a / pageDimensions.width))); } }} aria-label="幅に合わせる" title="幅に合わせる" className="w-8 h-8 flex items-center justify-center text-slate-600 hover:bg-white hover:shadow-sm rounded-md transition-all">
+                <Icons.Columns className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="w-px h-6 bg-slate-300 hidden lg:block"></div>
             <div className="flex items-center gap-2 lg:gap-3">
-              <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage <= 1} className="w-8 h-8 flex items-center justify-center bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg disabled:opacity-40 transition-colors">
+              <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage <= 1} aria-label="前のページ" title="前のページ" className="w-8 h-8 flex items-center justify-center bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg disabled:opacity-40 transition-colors">
                 <Icons.ChevronLeft className="w-5 h-5" />
               </button>
               <span className="text-sm font-bold text-slate-700 min-w-[3rem] lg:min-w-[4rem] text-center">{currentPage} / {totalPages}</span>
-              <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage >= totalPages} className="w-8 h-8 flex items-center justify-center bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg disabled:opacity-40 transition-colors">
+              <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage >= totalPages} aria-label="次のページ" title="次のページ" className="w-8 h-8 flex items-center justify-center bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg disabled:opacity-40 transition-colors">
                 <Icons.ChevronRight className="w-5 h-5" />
               </button>
             </div>
@@ -953,7 +1007,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
       const {
         appMode, isExporting, handleMerge, handleSplit, handleOrganize,
         handleConvertImg2Pdf, handleConvertPdf2Img, handleConvertPdf2Pptx, handleAddPageNum, handleExtractText, handleNUp,
-        mergeFiles, setMergeFiles, 
+        mergeFiles, setMergeFiles, handleRemoveMergeFile, 
         mergeThumbnails, setMergeThumbnails, isGeneratingMergeThumbnails, setIsGeneratingMergeThumbnails,
         splitFile, setSplitFile, splitMode, setSplitMode,
         splitRange, setSplitRange, 
@@ -974,6 +1028,10 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
       const [isGeneratingThumbnails, setIsGeneratingThumbnails] = useState(false);
       const [draggedMergeIndex, setDraggedMergeIndex] = useState(null);
       const [previewData, setPreviewData] = useState(null);
+      const [previewHiRes, setPreviewHiRes] = useState(null);
+      const [previewOrganizeHiRes, setPreviewOrganizeHiRes] = useState(null);
+      const previewRenderTokenRef = useRef(0);
+      const organizePreviewRenderTokenRef = useRef(0);
       const [lastSplitSelectedPage, setLastSplitSelectedPage] = useState(null);
       const splitLoadTokenRef = useRef(0);
       
@@ -994,6 +1052,72 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
       }, [previewData, hasPrevPreview, hasNextPreview]);
+
+      // 表示中のページを画面サイズに合わせて高解像度で再レンダリングする共通処理
+      const renderHiResPreview = useCallback(async (sourceFile, pageIndex, token) => {
+        const arrayBuffer = await sourceFile.arrayBuffer();
+        const pdf = await window.pdfjsLib.getDocument({ data: clonePdfData(arrayBuffer), cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/', cMapPacked: true }).promise;
+        if (token !== previewRenderTokenRef.current) return null;
+        const page = await pdf.getPage(pageIndex + 1);
+        const base = page.getViewport({ scale: 1 });
+        const dpr = window.devicePixelRatio || 1;
+        const targetHeight = window.innerHeight * 0.92 * dpr;
+        const targetWidth = window.innerWidth * 0.96 * dpr;
+        const scale = Math.min(4, Math.max(1.5, Math.min(targetHeight / base.height, targetWidth / base.width)));
+        const viewport = page.getViewport({ scale });
+        const canvas = document.createElement('canvas');
+        canvas.width = viewport.width; canvas.height = viewport.height;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+        await page.render({ canvasContext: ctx, viewport }).promise;
+        if (token !== previewRenderTokenRef.current) return null;
+        return canvas.toDataURL('image/jpeg', 0.92);
+      }, []);
+
+      // 結合・抽出プレビュー（previewData）を開いたら高解像度で再レンダリングする
+      useEffect(() => {
+        if (!previewData || !previewData.sourceFile) { setPreviewHiRes(null); return; }
+        const token = ++previewRenderTokenRef.current;
+        setPreviewHiRes(null);
+        (async () => {
+          try {
+            const img = await renderHiResPreview(previewData.sourceFile, previewData.currentIndex, token);
+            if (img !== null) setPreviewHiRes(img);
+          } catch (err) {
+            console.error('プレビューの高解像度生成に失敗しました', err);
+          }
+        })();
+      }, [previewData, renderHiResPreview]);
+
+      // 整理プレビュー（previewOrganizePage）を開いたら高解像度で再レンダリングする
+      useEffect(() => {
+        if (!previewOrganizePage || !organizeFile) { setPreviewOrganizeHiRes(null); return; }
+        const token = ++organizePreviewRenderTokenRef.current;
+        setPreviewOrganizeHiRes(null);
+        (async () => {
+          try {
+            const arrayBuffer = await organizeFile.arrayBuffer();
+            const pdf = await window.pdfjsLib.getDocument({ data: clonePdfData(arrayBuffer), cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/', cMapPacked: true }).promise;
+            if (token !== organizePreviewRenderTokenRef.current) return;
+            const page = await pdf.getPage(previewOrganizePage.originalIndex + 1);
+            const base = page.getViewport({ scale: 1 });
+            const dpr = window.devicePixelRatio || 1;
+            // 回転はCSSで行うため、回転後にも画面いっぱいになるよう縦横の小さい方を基準にする
+            const targetSide = Math.min(window.innerHeight * 0.92, window.innerWidth * 0.96) * dpr;
+            const scale = Math.min(4, Math.max(1.5, targetSide / Math.max(base.width, base.height)));
+            const viewport = page.getViewport({ scale });
+            const canvas = document.createElement('canvas');
+            canvas.width = viewport.width; canvas.height = viewport.height;
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+            await page.render({ canvasContext: ctx, viewport }).promise;
+            if (token !== organizePreviewRenderTokenRef.current) return;
+            setPreviewOrganizeHiRes(canvas.toDataURL('image/jpeg', 0.92));
+          } catch (err) {
+            console.error('整理プレビューの高解像度生成に失敗しました', err);
+          }
+        })();
+      }, [previewOrganizePage, organizeFile]);
       const organizeGridRef = useRef(null);
       const organizeLoadTokenRef = useRef(0);
       const mergeThumbnailJobsRef = useRef(0);
@@ -1139,7 +1263,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
                           <Icons.FileText className="w-5 h-5 text-indigo-500 shrink-0 hidden sm:block" />
                           <span className="text-sm font-medium text-slate-700 truncate">{file.name}</span>
                         </div>
-                        <button onClick={() => setMergeFiles(prev => prev.filter((_, idx) => idx !== index))} className="text-slate-400 hover:text-red-500 p-2 hover:bg-red-50 rounded-lg transition-colors shrink-0">
+                        <button onClick={() => handleRemoveMergeFile(index)} className="text-slate-400 hover:text-red-500 p-2 hover:bg-red-50 rounded-lg transition-colors shrink-0">
                           <Icons.X className="w-5 h-5" />
                         </button>
                       </div>
@@ -1150,7 +1274,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
                             <div key={i} className="shrink-0 relative group/thumb cursor-pointer" 
                               onClick={(e) => { 
                                 e.stopPropagation(); 
-                                setPreviewData({ images: thumbs, currentIndex: i, getTitle: (idx) => `${file.name} - ${idx+1}ページ目` }); 
+                                setPreviewData({ images: thumbs, currentIndex: i, sourceFile: file, getTitle: (idx) => `${file.name} - ${idx+1}ページ目` }); 
                               }}>
                               <img src={t} className="h-16 lg:h-24 w-auto object-contain border border-slate-200 rounded shadow-sm bg-slate-50" />
                               <span className="absolute bottom-0 right-0 bg-slate-900/70 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-tl">{i+1}</span>
@@ -1179,19 +1303,15 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
           </ModeContainer>
 
           {previewData && (
-            <div className="fixed inset-0 z-[100] bg-slate-900/90 backdrop-blur-md flex items-center justify-center p-2 lg:p-4 cursor-pointer" onClick={() => setPreviewData(null)}>
-              <div className="relative w-full h-full flex flex-col items-center justify-center">
-                <button onClick={(e) => { e.stopPropagation(); setPreviewData(null); }} className="absolute top-4 right-4 text-white bg-slate-900/50 hover:bg-red-500 rounded-full p-2 transition z-10 cursor-pointer"><Icons.X className="w-6 h-6 lg:w-8 lg:h-8" /></button>
-                {hasPrevPreview && <button onClick={goToPrevPreview} className="absolute left-2 lg:left-4 top-1/2 -translate-y-1/2 text-white bg-white/10 hover:bg-indigo-500 rounded-full p-2 lg:p-4 transition-all z-20 cursor-pointer"><Icons.ChevronLeft className="w-6 h-6 lg:w-10 lg:h-10" /></button>}
-                {hasNextPreview && <button onClick={goToNextPreview} className="absolute right-2 lg:right-4 top-1/2 -translate-y-1/2 text-white bg-white/10 hover:bg-indigo-500 rounded-full p-2 lg:p-4 transition-all z-20 cursor-pointer"><Icons.ChevronRight className="w-6 h-6 lg:w-10 lg:h-10" /></button>}
-                
-                <img src={previewData.images[previewData.currentIndex]} className="max-w-full max-h-[85vh] lg:max-h-[95vh] object-contain shadow-2xl bg-white cursor-default rounded-sm" onClick={(e) => e.stopPropagation()} />
-                <div className="absolute bottom-6 text-white font-bold bg-slate-900/80 px-4 py-1.5 rounded-full shadow-lg backdrop-blur-md cursor-default text-xs lg:text-sm" onClick={(e) => e.stopPropagation()}>
-                  {previewData.getTitle(previewData.currentIndex)}
-                </div>
-              </div>
-            </div>
-          )}
+            <ImagePreviewModal
+              src={previewHiRes}
+              fallbackSrc={previewData.images[previewData.currentIndex]}
+              onClose={() => setPreviewData(null)}
+              onPrev={goToPrevPreview} onNext={goToNextPreview}
+              hasPrev={hasPrevPreview} hasNext={hasNextPreview}
+              title={previewData.getTitle(previewData.currentIndex)}
+            />
+          )}
         </>
       );
 
@@ -1378,7 +1498,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
                                     onClick={(e) => { 
                                       e.stopPropagation(); 
                                       if (!thumb) return;
-                                      setPreviewData({ images: splitThumbnails, currentIndex: idx, getTitle: (i) => `抽出プレビュー: ${i+1}ページ目` }); 
+                                      setPreviewData({ images: splitThumbnails, currentIndex: idx, sourceFile: splitFile, getTitle: (i) => `抽出プレビュー: ${i+1}ページ目` }); 
                                     }} 
                                     className="bg-slate-900/60 p-2 lg:p-3 rounded-full text-white backdrop-blur-sm shadow-lg transform scale-90 group-hover:scale-100 transition-transform pointer-events-auto cursor-pointer hover:bg-slate-900/80 disabled:opacity-30 disabled:cursor-wait" title="拡大プレビュー">
                                     <Icons.ZoomIn className="w-5 h-5" />
@@ -1400,19 +1520,16 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
             </ModeContainer>
 
             {previewData && (
-              <div className="fixed inset-0 z-[100] bg-slate-900/90 backdrop-blur-md flex items-center justify-center p-2 lg:p-4 cursor-pointer" onClick={() => setPreviewData(null)}>
-                <div className="relative w-full h-full flex flex-col items-center justify-center">
-                  <button onClick={(e) => { e.stopPropagation(); setPreviewData(null); }} className="absolute top-4 right-4 text-white bg-slate-900/50 hover:bg-red-500 rounded-full p-2 transition z-10 cursor-pointer"><Icons.X className="w-6 h-6 lg:w-8 lg:h-8" /></button>
-                  {hasPrevPreview && <button onClick={goToPrevPreview} className="absolute left-2 lg:left-4 top-1/2 -translate-y-1/2 text-white bg-white/10 hover:bg-indigo-500 rounded-full p-2 lg:p-4 transition-all z-20 cursor-pointer"><Icons.ChevronLeft className="w-6 h-6 lg:w-10 lg:h-10" /></button>}
-                  {hasNextPreview && <button onClick={goToNextPreview} className="absolute right-2 lg:right-4 top-1/2 -translate-y-1/2 text-white bg-white/10 hover:bg-indigo-500 rounded-full p-2 lg:p-4 transition-all z-20 cursor-pointer"><Icons.ChevronRight className="w-6 h-6 lg:w-10 lg:h-10" /></button>}
-                  
-                  {previewData.images[previewData.currentIndex] ? <img src={previewData.images[previewData.currentIndex]} className="max-w-full max-h-[85vh] lg:max-h-[95vh] object-contain shadow-2xl bg-white cursor-default rounded-sm" onClick={(e) => e.stopPropagation()} /> : <div className="bg-white text-slate-400 font-bold rounded-sm shadow-2xl w-[280px] h-[396px] flex items-center justify-center cursor-default" onClick={(e) => e.stopPropagation()}>{previewData.currentIndex + 1}</div>}
-                  <div className="absolute bottom-6 text-white font-bold bg-slate-900/80 px-4 py-1.5 rounded-full shadow-lg backdrop-blur-md cursor-default text-xs lg:text-sm" onClick={(e) => e.stopPropagation()}>
-                    {previewData.getTitle(previewData.currentIndex)}
-                  </div>
-                </div>
-              </div>
-            )}
+              <ImagePreviewModal
+                src={previewHiRes}
+                fallbackSrc={previewData.images[previewData.currentIndex]}
+                onClose={() => setPreviewData(null)}
+                onPrev={goToPrevPreview} onNext={goToNextPreview}
+                hasPrev={hasPrevPreview} hasNext={hasNextPreview}
+                title={previewData.getTitle(previewData.currentIndex)}
+                placeholderLabel={previewData.currentIndex + 1}
+              />
+            )}
           </>
         );
       }
@@ -1504,16 +1621,16 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
           </ModeContainer>
 
           {previewOrganizePage && (
-            <div className="fixed inset-0 z-[100] bg-slate-900/90 backdrop-blur-md flex items-center justify-center p-2 lg:p-4 cursor-pointer" onClick={() => setPreviewOrganizePage(null)}>
-              <div className="relative w-full h-full flex flex-col items-center justify-center">
-                <button onClick={(e) => { e.stopPropagation(); setPreviewOrganizePage(null); }} className="absolute top-4 right-4 text-white bg-slate-900/50 hover:bg-red-500 rounded-full p-2 transition z-10 cursor-pointer"><Icons.X className="w-6 h-6 lg:w-8 lg:h-8" /></button>
-                {hasPrev && <button onClick={goToPrev} className="absolute left-2 lg:left-4 top-1/2 -translate-y-1/2 text-white bg-white/10 hover:bg-indigo-500 rounded-full p-2 lg:p-4 transition-all z-20 cursor-pointer"><Icons.ChevronLeft className="w-6 h-6 lg:w-10 lg:h-10" /></button>}
-                {hasNext && <button onClick={goToNext} className="absolute right-2 lg:right-4 top-1/2 -translate-y-1/2 text-white bg-white/10 hover:bg-indigo-500 rounded-full p-2 lg:p-4 transition-all z-20 cursor-pointer"><Icons.ChevronRight className="w-6 h-6 lg:w-10 lg:h-10" /></button>}
-                <img src={previewOrganizePage.thumbnail} className="max-w-full max-h-[85vh] lg:max-h-[95vh] object-contain shadow-2xl bg-white cursor-default rounded-sm" style={{ transform: `rotate(${previewOrganizePage.rotation || 0}deg)` }} onClick={(e) => e.stopPropagation()} />
-                <div className="absolute bottom-6 text-white font-bold bg-slate-900/80 px-4 py-1 rounded-full shadow-lg backdrop-blur-md cursor-default text-xs" onClick={(e) => e.stopPropagation()}>元のページ : {previewOrganizePage.originalIndex + 1}</div>
-              </div>
-            </div>
-          )}
+            <ImagePreviewModal
+              src={previewOrganizeHiRes}
+              fallbackSrc={previewOrganizePage.thumbnail}
+              onClose={() => setPreviewOrganizePage(null)}
+              onPrev={goToPrev} onNext={goToNext}
+              hasPrev={hasPrev} hasNext={hasNext}
+              title={`元のページ : ${previewOrganizePage.originalIndex + 1}`}
+              rotation={previewOrganizePage.rotation || 0}
+            />
+          )}
         </>
       );
 
@@ -1925,7 +2042,8 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
       const [toast, setToast] = useState(null);
       const [isLibrariesLoaded, setIsLibrariesLoaded] = useState(false);
       const [annotations, setAnnotations] = useState([]);
-      const [redoStack, setRedoStack] = useState([]);
+      const [undoStack, setUndoStack] = useState([]);
+      const [redoStack, setRedoStack] = useState([]);
       const [selectedId, setSelectedId] = useState(null);
       const [draggingId, setDraggingId] = useState(null);
       const [resizingId, setResizingId] = useState(null);
@@ -1994,6 +2112,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
       const inputRef = useRef(null);
       const dragStartPos = useRef({ x: 0, y: 0 });
       const initialAnnPos = useRef(null);
+      const dragStartSnapshot = useRef(null);
 
       useEffect(() => {
         const generateNUpPreview = async () => {
@@ -2077,7 +2196,13 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
         if (!container || appMode !== 'edit') return;
 
         const handleWheel = (e) => {
-          if (e.ctrlKey || e.metaKey || isSpacePressed.current) return;
+          if (e.ctrlKey || e.metaKey) {
+            e.preventDefault();
+            const delta = e.deltaY < 0 ? 0.1 : -0.1;
+            setScale(s => Math.min(3.0, Math.max(0.2, Math.round((s + delta) * 100) / 100)));
+            return;
+          }
+          if (isSpacePressed.current) return;
 
           const { scrollTop, scrollHeight, clientHeight } = container;
           const isAtBottom = scrollTop + clientHeight >= scrollHeight - 5;
@@ -2207,7 +2332,12 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
         return () => window.removeEventListener('paste', handlePaste);
       }, [appMode, pdfDoc, currentPage]);
 
-      const showToast = (msg, type = 'info') => { setToast({ msg, type }); setTimeout(() => setToast(null), 3000); };
+      const toastTimerRef = useRef(null);
+      const showToast = (msg, type = 'info', options = {}) => {
+        if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+        setToast({ msg, type, action: options.action || null });
+        toastTimerRef.current = setTimeout(() => setToast(null), options.duration || 3000);
+      };
 
       const loadPdf = async (fileOrBytes, name) => {
         try {
@@ -2230,7 +2360,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
           const loadingTask = window.pdfjsLib.getDocument({ data: clonePdfData(bytesCopy), cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/', cMapPacked: true });
           const pdf = await loadingTask.promise;
           setPdfDoc(pdf); setPdfBytes(bytesCopy); setFileName(name || 'document.pdf');
-          setTotalPages(pdf.numPages); setCurrentPage(1); setAnnotations([]); setRedoStack([]); setSelectedId(null);
+          setTotalPages(pdf.numPages); setCurrentPage(1); setAnnotations([]); setUndoStack([]); setRedoStack([]); setSelectedId(null);
           showToast('PDFを読み込みました');
         } catch (error) { console.error(error); showToast('PDFの読み込みに失敗しました', 'error'); }
       };
@@ -2278,7 +2408,20 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
         const rect = wrapperRef.current.getBoundingClientRect();
         return { x: (e.clientX - rect.left) / scale, y: (e.clientY - rect.top) / scale };
       };
-      const saveState = () => { setRedoStack([]); };
+      // 変更前のスナップショットを履歴に積む。redoはやり直しのため破棄する
+      const commitHistory = (prevSnapshot) => {
+        if (!prevSnapshot) return;
+        setUndoStack(prev => [...prev, prevSnapshot]);
+        setRedoStack([]);
+      };
+      // 通常の編集操作はクロージャの annotations が変更前の状態を指すので、それを履歴に積む
+      const saveState = () => { commitHistory(annotations); };
+      // 移動・リサイズ・消しゴムなど操作中に annotations が変化する処理は、操作開始時のスナップショットを積む
+      const commitDragHistory = () => {
+        const before = dragStartSnapshot.current;
+        dragStartSnapshot.current = null;
+        if (before && JSON.stringify(before) !== JSON.stringify(annotations)) commitHistory(before);
+      };
 
       const eraseAtPoint = useCallback((pos) => {
         const r = eraserSize / 2;
@@ -2427,7 +2570,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
         pos = getSnapPoint(pos, e.altKey); 
         dragStartPos.current = pos;
         
-        if (tool === 'eraser') { setDraftEraser(pos); eraseAtPoint(pos); return; }
+        if (tool === 'eraser') { dragStartSnapshot.current = annotations; setDraftEraser(pos); eraseAtPoint(pos); return; }
         if (['rect','solidRect','circle','solidCircle','highlight','redaction','snapshot'].includes(tool)) { setDraftRect({ x: pos.x, y: pos.y, width: 0, height: 0 }); }
         else if (['line','arrow'].includes(tool)) { setDraftArrow({ x1: pos.x, y1: pos.y, x2: pos.x, y2: pos.y }); }
         else if (['freehand','mosaic'].includes(tool)) { setDraftFreehand([pos]); }
@@ -2586,9 +2729,9 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
 
         if (['polygon', 'solidPolygon'].includes(tool)) return;
 
-        if (draggingEndpoint.current) { draggingEndpoint.current = null; saveState(); return; }
-        if (tool === 'eraser') { setDraftEraser(null); saveState(); return; }
-        if (draggingId || resizingId) { setDraggingId(null); setResizingId(null); saveState(); return; }
+        if (draggingEndpoint.current) { draggingEndpoint.current = null; commitDragHistory(); return; }
+        if (tool === 'eraser') { setDraftEraser(null); commitDragHistory(); return; }
+        if (draggingId || resizingId) { setDraggingId(null); setResizingId(null); commitDragHistory(); return; }
 
         if (draftRect && draftRect.width > 5 && draftRect.height > 5) {
           if (tool === 'snapshot') {
@@ -2713,7 +2856,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
         if (e.button !== 0) return; 
         if (tool !== 'select') return;
         e.stopPropagation(); setSelectedId(ann.id); setDraggingId(ann.id);
-        dragStartPos.current = getPointerPos(e); initialAnnPos.current = JSON.parse(JSON.stringify(ann));
+        dragStartSnapshot.current = annotations; dragStartPos.current = getPointerPos(e); initialAnnPos.current = JSON.parse(JSON.stringify(ann));
         if (ann.color && !ann.color.startsWith('rgba')) setCurrentColor(ann.color);
         if (ann.strokeWidth) setCurrentStrokeWidth(ann.strokeWidth);
         if (ann.fontSize) setCurrentFontSize(ann.fontSize);
@@ -2724,12 +2867,12 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
       
       const handleResizePointerDown = (e, ann) => { 
         if (e.button !== 0) return; 
-        e.stopPropagation(); setResizingId(ann.id); initialAnnPos.current = JSON.parse(JSON.stringify(ann)); 
+        e.stopPropagation(); setResizingId(ann.id); dragStartSnapshot.current = annotations; initialAnnPos.current = JSON.parse(JSON.stringify(ann)); 
       };
       
       const handleEndpointPointerDown = (e, ann, endpoint) => { 
         if (e.button !== 0) return; 
-        e.stopPropagation(); setSelectedId(ann.id); draggingEndpoint.current = { annId: ann.id, endpoint }; 
+        e.stopPropagation(); setSelectedId(ann.id); dragStartSnapshot.current = annotations; draggingEndpoint.current = { annId: ann.id, endpoint }; 
       };
       
       const handleSnapAngle = (ann, angleDeg) => {
@@ -2775,8 +2918,22 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
       const handleBgColorChange = (c) => { setCurrentBgColor(c); if (selectedId) { setAnnotations(annotations.map(a => a.id === selectedId ? { ...a, backgroundColor: c } : a)); saveState(); } };
       const handleStrokeWidthChange = (e) => { const w = parseInt(e.target.value); setCurrentStrokeWidth(w); if (selectedId) { setAnnotations(annotations.map(a => a.id === selectedId ? { ...a, strokeWidth: w } : a)); saveState(); } };
       const handleFontSizeChange = (e) => { const s = parseInt(e.target.value); setCurrentFontSize(s); if (selectedId) { setAnnotations(annotations.map(a => a.id === selectedId ? { ...a, fontSize: s } : a)); saveState(); } };
-      const handleUndo = () => { if (annotations.length > 0) { setRedoStack([...redoStack, annotations[annotations.length-1]]); setAnnotations(annotations.slice(0,-1)); setSelectedId(null); } };
-      const handleRedo = () => { if (redoStack.length > 0) { setAnnotations([...annotations, redoStack[redoStack.length-1]]); setRedoStack(redoStack.slice(0,-1)); } };
+      const handleUndo = () => {
+        if (undoStack.length === 0) return;
+        const previous = undoStack[undoStack.length - 1];
+        setRedoStack(prev => [...prev, annotations]);
+        setUndoStack(prev => prev.slice(0, -1));
+        setAnnotations(previous);
+        setSelectedId(null);
+      };
+      const handleRedo = () => {
+        if (redoStack.length === 0) return;
+        const next = redoStack[redoStack.length - 1];
+        setUndoStack(prev => [...prev, annotations]);
+        setRedoStack(prev => prev.slice(0, -1));
+        setAnnotations(next);
+        setSelectedId(null);
+      };
 
       const generateOrganizeThumbnails = async (file) => {
         try {
@@ -3733,7 +3890,16 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
 
       const handleOrganizeMoveUp = (i) => { if(i>0){const p=[...organizePages];[p[i-1],p[i]]=[p[i],p[i-1]];setOrganizePages(p);} };
       const handleOrganizeMoveDown = (i) => { if(i<organizePages.length-1){const p=[...organizePages];[p[i],p[i+1]]=[p[i+1],p[i]];setOrganizePages(p);} };
-      const handleOrganizeDelete = (i) => { setOrganizePages(organizePages.filter((_,idx) => idx!==i)); };
+      const handleOrganizeDelete = (i) => {
+        const prevPages = organizePages;
+        setOrganizePages(organizePages.filter((_,idx) => idx!==i));
+        showToast('ページを削除しました', 'info', { duration: 6000, action: { label: '元に戻す', onClick: () => setOrganizePages(prevPages) } });
+      };
+      const handleRemoveMergeFile = (index) => {
+        const prevFiles = mergeFiles;
+        setMergeFiles(prev => prev.filter((_, idx) => idx !== index));
+        showToast('ファイルを削除しました', 'info', { duration: 6000, action: { label: '元に戻す', onClick: () => setMergeFiles(prevFiles) } });
+      };
       const handleOrganizeRotate = (i, angle) => { const p=[...organizePages]; p[i].rotation=(p[i].rotation+angle)%360; setOrganizePages(p); };
 
       const [isGlobalDragging, setIsGlobalDragging] = useState(false);
@@ -3769,9 +3935,14 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
         const [textExportMode, setTextExportMode] = useState('embed'); 
         const [imageExportQuality, setImageExportQuality] = useState(imageQuality);
         const currentName = useOriginalName ? dialog.originalName : customName;
+        const trimmedName = (currentName || '').trim();
+        const invalidCharPattern = /[\\/:*?"<>|]/;
+        const hasInvalidChar = invalidCharPattern.test(trimmedName);
+        const isNameValid = trimmedName.length > 0 && !hasInvalidChar;
         const confirmSave = () => {
+          if (!isNameValid) return;
           if (dialog.type === 'image') setImageQuality(imageExportQuality);
-          dialog.onConfirm(currentName, textExportMode, imageExportQuality);
+          dialog.onConfirm(trimmedName, textExportMode, imageExportQuality);
         };
 
         return (
@@ -3807,7 +3978,12 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
                     className="flex-1 px-4 py-3 text-sm outline-none font-medium bg-transparent disabled:text-slate-500" autoFocus placeholder="ファイル名を入力..." />
                   <span className="pr-4 text-sm text-slate-400 font-medium shrink-0">{dialog.type === 'pdf' ? '.pdf' : dialog.type === 'zip' ? '.zip' : dialog.type === 'pptx' ? '.pptx' : '.jpg'}</span>
                 </div>
-                <label className="flex items-center gap-2 mt-4 cursor-pointer w-max mb-4">
+                {!isNameValid && (
+                  <p className="mt-2 text-xs font-medium text-red-500">
+                    {trimmedName.length === 0 ? 'ファイル名を入力してください。' : '使用できない文字（\\ / : * ? " < > |）が含まれています。'}
+                  </p>
+                )}
+                <label className="flex items-center gap-2 mt-4 cursor-pointer w-max mb-4">
                   <input type="checkbox" checked={useOriginalName} onChange={(e) => setUseOriginalName(e.target.checked)} className="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500 cursor-pointer" />
                   <span className="text-sm font-medium text-slate-700">元のファイル名で保存する</span>
                 </label>
@@ -3856,7 +4032,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
 
               <div className="px-6 pb-6 flex gap-3">
                 <button onClick={onClose} className="flex-1 py-3 rounded-xl border border-slate-200 text-slate-600 text-sm font-bold hover:bg-slate-50 transition-all">キャンセル</button>
-                <button onClick={confirmSave} className={cn("flex-1 py-3 rounded-xl text-white text-sm font-bold transition-all shadow-sm", dialog.type === 'pdf' ? "bg-indigo-600 hover:bg-indigo-700" : dialog.type === 'zip' ? "bg-amber-500 hover:bg-amber-600" : "bg-emerald-500 hover:bg-emerald-600")}>保存してダウンロード</button>
+                <button onClick={confirmSave} disabled={!isNameValid} className={cn("flex-1 py-3 rounded-xl text-white text-sm font-bold transition-all shadow-sm disabled:opacity-40 disabled:cursor-not-allowed", dialog.type === 'pdf' ? "bg-indigo-600 hover:bg-indigo-700" : dialog.type === 'zip' ? "bg-amber-500 hover:bg-amber-600" : "bg-emerald-500 hover:bg-emerald-600")}>保存してダウンロード</button>
               </div>
             </div>
           </div>
@@ -3897,7 +4073,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
                   currentFontSize={currentFontSize} handleFontSizeChange={handleFontSizeChange}
                   currentBgColor={currentBgColor} handleBgColorChange={handleBgColorChange}
                   stampType={stampType} setStampType={setStampType} currentStamp={currentStamp} setCurrentStamp={setCurrentStamp} currentSteelShape={currentSteelShape} setCurrentSteelShape={setCurrentSteelShape} dateStampTop={dateStampTop} setDateStampTop={setDateStampTop} dateStampBottom={dateStampBottom} setDateStampBottom={setDateStampBottom} dateStampDate={dateStampDate} setDateStampDate={setDateStampDate}
-                  handleUndo={handleUndo} handleRedo={handleRedo} redoStack={redoStack}
+                  handleUndo={handleUndo} handleRedo={handleRedo} redoStack={redoStack} undoStack={undoStack}
                   handleDeleteSelected={handleDeleteSelected} handleEditSelectedText={() => handleEditSelectedText(annotations.find(a => a.id === selectedId))}
                   handleAddImageAnnotation={handleAddImageAnnotation} pdfDoc={pdfDoc}
                   showSendMenu={showSendMenu} setShowSendMenu={setShowSendMenu} sendToTool={sendToTool} isExporting={isExporting}
@@ -3940,7 +4116,7 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
             ) : (
               <OtherModes
                 appMode={appMode} isExporting={isExporting} handleMerge={handleMerge} handleSplit={handleSplit} handleOrganize={handleOrganize} handleConvertImg2Pdf={handleConvertImg2Pdf} handleConvertPdf2Img={handleConvertPdf2Img} handleConvertPdf2Pptx={handleConvertPdf2Pptx} handleAddPageNum={handleAddPageNum} handleExtractText={handleExtractText} handleNUp={handleNUp}
-                mergeFiles={mergeFiles} setMergeFiles={setMergeFiles} splitFile={splitFile} setSplitFile={setSplitFile} splitMode={splitMode} setSplitMode={setSplitMode} splitRange={splitRange} setSplitRange={setSplitRange}
+                mergeFiles={mergeFiles} setMergeFiles={setMergeFiles} handleRemoveMergeFile={handleRemoveMergeFile} splitFile={splitFile} setSplitFile={setSplitFile} splitMode={splitMode} setSplitMode={setSplitMode} splitRange={splitRange} setSplitRange={setSplitRange}
                 mergeThumbnails={mergeThumbnails} setMergeThumbnails={setMergeThumbnails} isGeneratingMergeThumbnails={isGeneratingMergeThumbnails} setIsGeneratingMergeThumbnails={setIsGeneratingMergeThumbnails}
                 splitThumbnails={splitThumbnails} setSplitThumbnails={setSplitThumbnails} isGeneratingSplitThumbnails={isGeneratingSplitThumbnails} setIsGeneratingSplitThumbnails={setIsGeneratingSplitThumbnails}
                 organizeFile={organizeFile} setOrganizeFile={setOrganizeFile} organizePages={organizePages} setOrganizePages={setOrganizePages} organizeThumbnails={organizeThumbnails} setOrganizeThumbnails={setOrganizeThumbnails} generateOrganizeThumbnails={generateOrganizeThumbnails}
@@ -3952,11 +4128,27 @@ const IconBase = ({ children, className = "w-5 h-5", ...props }) => (
             )}
           </main>
 
-          {toast && (
+          {isExporting && (
+            <div className="fixed inset-0 z-[300] bg-slate-900/40 backdrop-blur-sm flex items-center justify-center" role="status" aria-live="polite">
+              <div className="bg-white rounded-2xl shadow-2xl px-8 py-7 flex flex-col items-center gap-4 max-w-[80vw]">
+                <div className="w-12 h-12 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin" aria-hidden="true"></div>
+                <p className="text-slate-700 font-bold text-sm lg:text-base text-center">{extractProgress || '処理中です。しばらくお待ちください...'}</p>
+              </div>
+            </div>
+          )}
+
+          {toast && (
             <div className="fixed bottom-6 right-6 left-6 lg:left-auto z-50 flex justify-center lg:justify-end">
               <div className={cn("px-4 py-3 rounded-xl shadow-lg flex items-center gap-3 font-medium", toast.type === 'error' ? "bg-red-600 text-white" : "bg-slate-800 text-white")}>
                 {toast.type === 'error' ? <Icons.X className="w-5 h-5 shrink-0" /> : <Icons.FileText className="w-5 h-5 text-indigo-400 shrink-0" />}
                 <span className="text-sm lg:text-base">{toast.msg}</span>
+                {toast.action && (
+                  <button
+                    onClick={() => { if (toastTimerRef.current) clearTimeout(toastTimerRef.current); toast.action.onClick(); setToast(null); }}
+                    className="ml-2 shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-lg bg-white/15 hover:bg-white/25 text-white text-xs lg:text-sm font-bold transition-colors">
+                    <Icons.Undo2 className="w-4 h-4" /> {toast.action.label}
+                  </button>
+                )}
               </div>
             </div>
           )}
